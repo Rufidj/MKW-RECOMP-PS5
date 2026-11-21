@@ -1,0 +1,30 @@
+{
+  "mkw-recomp": {
+    "url": "https://github.com/adriadam10/mkw-recomp.git",
+    "commit": "e652497ab3284d53bed671c012d86c7e397f19f5",
+    "patch": "patches/mkw-recomp.patch",
+    "folder": "mkw-recomp"
+  },
+  "PS5_PayloadSDK": {
+    "url": "https://github.com/mihawk-99/PS5_PayloadSDK.git",
+    "commit": "b5efad528e0ac1b8289f39d72a0e890ff68ff0a6",
+    "patch": "patches/PS5_PayloadSDK.patch",
+    "folder": "PS5_PayloadSDK"
+  },
+  "PS5_Vulkan": {
+    "url": "https://github.com/mihawk-99/PS5_Vulkan.git",
+    "commit": "fde9e3798c2ec1d8fccc90d5067cd6060490607f",
+    "patch": "patches/PS5_Vulkan.patch",
+    "folder": "PS5_VulkanBuild"
+  },
+  "PS5_VulkanTemplate": {
+    "url": "https://github.com/mihawk-99/PS5_VulkanTemplate.git",
+    "commit": "b577e950684e8bb835746ad0e38495ebcb154fd0",
+    "patch": "patches/PS5_VulkanTemplate.patch",
+    "folder": "PS5_MKWProbe",
+    "deleted": "patches/PS5_VulkanTemplate.deleted",
+    "submodules": [
+      "external/glm"
+    ]
+  }
+}

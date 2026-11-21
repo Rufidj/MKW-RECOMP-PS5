@@ -1,0 +1,13 @@
+diff --git a/tools/radv-link.sh b/tools/radv-link.sh
+index 3d830cc..bbd9232 100644
+--- a/tools/radv-link.sh
++++ b/tools/radv-link.sh
+@@ -92,7 +92,7 @@ radv_link_recipe() {
+     # title pins has them (SDK fork 5d14e81 and 24b2bb9), as localeconv is.
+     local platform_symbols
+     platform_symbols=$("$sdk_root/bin/llvm-nm" --defined-only "$platform" 2>/dev/null || true)
+-    for name in strcasestr mkstemp readlink link symlink; do
++    for name in strcasestr mkstemp readlink link symlink umask fork setsid wait4; do
+         if grep -q " T ps5_$name$" <<<"$platform_symbols"; then
+             radv_link_flags+=("--defsym=$name=ps5_$name")
+         fi

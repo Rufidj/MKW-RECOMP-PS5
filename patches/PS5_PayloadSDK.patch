@@ -1,0 +1,2423 @@
+diff --git a/platform/Makefile b/platform/Makefile
+index fe5bc36..8ee1a53 100644
+--- a/platform/Makefile
++++ b/platform/Makefile
+@@ -51,7 +51,7 @@ HOST_SRCS := $(filter-out src/probe.c,$(SRCS)) tests/host_kernel.c tests/host_li
+ HOST_REGEX_OBJS := $(REGEX_SRCS:src/regex/%.c=build/host/regex/%.o)
+ HOST_HEAP_OBJ := build/host/dlmalloc/mspace.o
+ 
+-.PHONY: all clean install test
++.PHONY: all clean install test test-demand test-checked
+ 
+ all: build/ps5/libps5platform.a
+ 
+@@ -102,7 +102,38 @@ build/host/test_elevation: src/elevation.c tests/test_elevation.c $(HEADERS)
+ 	@mkdir -p build/host
+ 	$(HOST_CC) $(HOST_CFLAGS) src/elevation.c tests/test_elevation.c -o $@
+ 
+-test: build/host/test_platform build/host/test_directory_records build/host/test_memory build/host/test_fdv build/host/test_elevation
++build/host/test_demand: src/demand.c tests/demand_host_kernel.c tests/test_demand.c $(HEADERS)
++	@mkdir -p build/host
++	$(HOST_CC) $(HOST_CFLAGS) src/demand.c tests/demand_host_kernel.c tests/test_demand.c -o $@
++
++test-demand: build/host/test_demand
++	build/host/test_demand --conflict
++	build/host/test_demand
++
++build/host/test_checked_region: src/checked_region.c tests/demand_host_kernel.c tests/test_checked_region.c $(HEADERS)
++	@mkdir -p build/host
++	$(HOST_CC) $(HOST_CFLAGS) src/checked_region.c tests/demand_host_kernel.c tests/test_checked_region.c -o $@
++
++test-checked: build/host/test_checked_region
++	build/host/test_checked_region
++
++build/host/test_checked_sparse: src/checked_region.c tests/demand_host_kernel.c tests/test_checked_sparse.c $(HEADERS)
++	@mkdir -p build/host
++	$(HOST_CC) $(HOST_CFLAGS) src/checked_region.c tests/demand_host_kernel.c tests/test_checked_sparse.c -o $@
++
++build/host/test_checked_atomics: src/checked_region.c tests/demand_host_kernel.c tests/test_checked_atomics.c $(HEADERS)
++	mkdir -p $(dir $@)
++	$(HOST_CC) $(HOST_CFLAGS) src/checked_region.c tests/demand_host_kernel.c tests/test_checked_atomics.c -o $@
++
++.PHONY: test-checked-atomics
++test-checked-atomics: build/host/test_checked_atomics
++	build/host/test_checked_atomics
++
++.PHONY: test-checked-sparse
++test-checked-sparse: build/host/test_checked_sparse
++	build/host/test_checked_sparse
++
++test: build/host/test_platform build/host/test_directory_records build/host/test_memory build/host/test_fdv build/host/test_elevation test-demand test-checked test-checked-sparse test-checked-atomics
+ 	build/host/test_platform
+ 	build/host/test_directory_records
+ 	build/host/test_memory
+diff --git a/platform/README.md b/platform/README.md
+index bb745d9..f1703a7 100644
+--- a/platform/README.md
++++ b/platform/README.md
+@@ -18,6 +18,22 @@ console lays it out, is corrected in the SDK's own `sys/_ucontext.h`
+ its headers in `target/include/ps5platform`, as part of the SDK's own install.
+ `make test` runs the host unit tests.
+ 
++The experimental CPU demand pager (`include/ps5platform/demand.h`, `src/demand.c`)
++backs regions in 64 KiB units on first access. I test it with `make test-demand`
++and a Linux kernel model, `tests/demand_host_kernel.c` and `tests/test_demand.c`.
++MKWPROBE-001 passed the user's firmware-9 console run for the exercised demand
++backing and stack paths. The design, exact evidence,
++thread lifetime rules and limits are in [docs/DEMAND.md](docs/DEMAND.md).
++
++The checked-copy loader interface (`include/ps5platform/checked_region.h`,
++`src/checked_region.c`) also offers serialized checked load/store/CAS for naturally aligned 1-16 byte operands and records logical 4 KiB permissions over native 16 KiB
++protection. Sparse reservations add checked commit/decommit, privileged copies
++and dirty-page queries; `tests/test_checked_sparse.c` is run by
++`make test-checked-sparse`. These sparse extensions are host-tested only.
++`make test-checked` runs `tests/test_checked_region.c` with the kernel
++model. [docs/CHECKED_REGIONS.md](docs/CHECKED_REGIONS.md) explains why direct
++guest pointers still need integration before this can be used for game execution.
++
+ ## How projects consume it
+ 
+ PS5_RetroArch (and, through the title, its cores), PS5_Vulkan, PS5_vkQuake and
+@@ -41,3 +57,10 @@ compiler is not byte-identical, and the fork changes none of them.
+   allocator under the title heap (`src/heap.c`).
+ - `tests/`: the host unit tests and the host model of the console's kernel.
+ - `docs/PROBE.md`: what the console measured, with `evidence/`.
++
++An application that owns SIGSEGV can explicitly bind its SA_SIGINFO dispatcher
++with ps5_demand_bind_dispatcher and service read/write faults with
++ps5_demand_access before reporting an unhandled crash. The targeted demand test
++includes the exact MKW dispatch-table size and preserves NX/read-only failures.
++
++Checked-region read copies and metadata queries share a reader lock; mutations, native protection changes and atomic operations keep exclusive ownership. This is host-tested concurrency work awaiting console performance measurement.
+diff --git a/platform/docs/CHECKED_REGIONS.md b/platform/docs/CHECKED_REGIONS.md
+new file mode 100644
+index 0000000..1b26e9b
+--- /dev/null
++++ b/platform/docs/CHECKED_REGIONS.md
+@@ -0,0 +1,80 @@
++# Checked CPU regions for loading diagnostics
++
++I use `checked_region.h` and `src/checked_region.c` to load raw module images at
++fixed addresses and validate copies at 4 KiB boundaries. This interface is for
++trusted loader/probe code. It is not a completed guest CPU memory implementation.
++
++## Permissions
++
++The interface stores a permission for each logical 4 KiB page: none, read, or
++read/write. Native 16 KiB pages receive the union of their logical page rights.
++That preserves valid accesses to a writable subpage next to a read-only one.
++Every read/write operation through this API validates its entire span under the
++region's mutex before copying any bytes. A rejected cross-boundary write leaves
++both sides intact.
++
++Raw pointers bypass these checks on mixed native pages. Guest CPU loads/stores,
++atomics, SIMD helpers and host overrides must be integrated with the appropriate
++checks before this can serve a running game. Merely recording logical permissions
++does not enforce them on unchecked accesses. The address getter is for placement
++and reporting, not an unchecked write interface. External copy buffers must be
++trusted host buffers that do not alias managed regions.
++
++## Lifetime and failure
++
++The original create call uses eager backing. The sparse create call reserves
++address space without committing physical units. Commit changes logical 4 KiB
++state: reads of committed unbacked pages return zero; checked writes allocate
++64 KiB units. Raw pointers do not receive this service. Mirrors and GPU/CPU
++coherence remain separate work.
++
++Protection changes hold the same mutex as checked copies. A native failure rolls
++back logical permissions and attempts to restore native permissions. If rollback
++also fails, the region becomes poisoned and further checked accesses fail. All
++users must stop before destroying a region. No other code may change its mappings.
++
++## Evidence
++
++`make test-checked` uses the Linux kernel model. It checks fixed placement,
++collision rejection, exact checked-copy boundaries, native protection of a whole
++16 KiB read-only page, rollback, poison state, concurrent copies/protection changes,
++and release/reuse. The consumer's synthetic NSO tests check LZ4, file/image hashes
++and BSS integrity. Its MKWPROBE-002 application adds real-dump loading checks; a
++the user-reported MKWPROBE-002 console log passed all nine stages.
++
++## Checked atomic operations (experimental)
++
++The load/store/CAS API supports naturally aligned 1, 2, 4, 8 and 16 byte
++operands. The same region mutex serializes them with checked copies and
++protection changes; seq-cst fences deliberately strengthen guest orderings.
++A CAS reports API validity separately from comparison success. On mismatch it
++updates the host expected buffer and leaves guest data intact. CAS requires RW
++even on mismatch; invalid calls do not modify output buffers or guest memory.
++
++These operations are linearizable among users of this API. They do not promise
++atomicity against unchecked pointers, external native atomics or GPU access.
++This is an experimental bring-up route, not the performance design for the
++complete game's guest memory. General memory, aliases and coherence remain open.
++The user-reported MKWPROBE-005 console log passed its SIMD, atomic and
++four-thread increment checks; MKWPROBE-006 also passed the shared CPU/HLE
++registry checks. These reports do not validate the newer sparse extensions.
++
++## Sparse reservations (host-model evidence only)
++
++`make test-checked-sparse` exercises 16 GiB and 64 GiB reservations, logical
++commit/decommit, zero-fill after recommit, dirty logical pages, privileged
++peek/poke, checked atomics, races and failure injection. No new sparse guest
++feature here has console evidence yet.
++
++A unit is allocated before its first checked write. `prepare_write` lets the
++consumer preflight every destination mapping before a multi-region write.
++Allocation or mapping failures poison that region; users must destroy it.
++Decommit returns pages to the reserved state, zeroes partial units while
++preserving neighbours, and releases wholly unused 64 KiB units. A native
++decommit failure also poisons the region.
++
++Privileged peek/poke may cross logical RO/NONE pages, never reserved pages.
++Peek stages its result; poke restores native permissions after copying. A
++failed restore poisons the region and may already have changed guest bytes.
++Dirty-page queries reset only entries returned, not unreported pages. Raw writes
++do not participate in this accounting.
+diff --git a/platform/docs/DEMAND.md b/platform/docs/DEMAND.md
+new file mode 100644
+index 0000000..877e61f
+--- /dev/null
++++ b/platform/docs/DEMAND.md
+@@ -0,0 +1,109 @@
++# Experimental demand-backed CPU regions
++
++I reserve a CPU region without backing all of it with direct memory. The first
++access to a 64 KiB unit allocates its physical backing and installs its view.
++`include/ps5platform/demand.h` is the interface and `src/demand.c` the implementation.
++This is a prototype checked with a Linux kernel model and cross-compilation,
++with the console evidence below. It is not a general memory implementation.
++
++## Fault path
++
++Creation allocates metadata for every unit and reserves two virtual windows: the
++public data window (with an optional guard) and a private staging window. The
++handler traverses an atomic registry and claims a unit with an atomic compare
++and exchange. It takes no pthread locks and makes no heap allocations. Registry
++removal waits for active readers before freeing metadata.
++
++The handler calls the exported direct-memory kernel allocation/mapping functions
++directly. It first maps a private alias and zeroes dirty backing there, then maps
++the public view. This prevents a racing reader from seeing reused memory before
++it is zeroed. The staging alias remains mapped until destruction: two virtual
++views use one physical unit, and no temporary hole can be taken by an allocator.
++Contending fault handlers wait briefly with nanosleep after a short spin, so a
++higher-priority waiter cannot monopolize the CPU of the mapping thread.
++Signal-context allocation/mapping passed the diagnostic run reported below.
++
++The automatic installer accepts a default SIGSEGV disposition or the exact
++SA_SIGINFO dispatcher explicitly registered by ps5_demand_bind_dispatcher.
++Binding verifies that this handler is already installed and never replaces it.
++Unrelated handlers are still refused. A shared dispatcher calls
++ps5_demand_access with the real read/write/execute kind before its crash report;
++execute, sealed writes, unowned addresses and backing failures are not handled.
++This integration avoids rejecting runtime tables/fibers after the application
++installs its own crash reporter, while preserving its fatal-fault path.
++Callers must not change a region's permissions or views behind
++this module's back. The region supports CPU read/write, not execute permissions.
++
++## Thread and stack lifetime
++
++Attach a thread before running on a demand stack. An existing alternate signal
++stack is borrowed; otherwise an eager guarded one is installed. Attachments nest.
++For a custom-stack pthread, back its startup unit before creating the pthread.
++The entry routine can then attach before executing callbacks with large frames.
++
++If the pthread owns the alternate stack, retire its final attachment at the end
++of the callback and release the returned token **after pthread_join**. Its TLS
++destructors still run on the demand stack and can fault after the callback returns.
++A thread leaving a fiber root on an ordinary stack can detach normally instead.
++No caller may access a region during its destruction.
++
++## Checks
++
++`make test-demand` builds `tests/test_demand.c` with `tests/demand_host_kernel.c`.
++The model gives newly allocated units dirty contents and uses memfd-backed shared
++views to test aliasing. The checks cover sparse backing of a 256 MiB region,
++zero-fill, concurrent first touches, registry churn while other regions fault,
++guards, NX, preserving a previously installed handler, and allocation/map failure
++cleanup. These tests do not execute the real PS5 kernel exports.
++
++The consuming MKW port additionally tests a 256 MiB fiber growing through several
++MiB, migrating between pthreads, and a destructor that grows a previously untouched
++stack after the worker callback has returned. Those are host tests too.
++
++## Console evidence
++
++I received the user's MKWPROBE-001 log from a PS5 whose reported firmware is 9.
++All five diagnostic stages passed. A 256 MiB region backed three units (192 KiB),
++and a 256 MiB fiber grew to 768 KiB of backing and migrated between pthreads.
++The log also reports successful thread/event/timeout/join and suspension/resumption
++checks. The evidence is the user's pasted log, not my own automated console capture.
++Concurrent first-touch races, registry churn, deliberate guard/NX faults and
++failure injection remain host-model checks; this run did not exercise them all.
++
++## Remaining limits
++
++This handles coarse CPU stack backing. It does not implement a guest's logical
++4 KiB permissions, write tracking, decommit semantics or GPU/CPU coherence. Those
++need their own mapping and synchronization design on the 16 KiB native pages.
++The extra virtual window and metadata have a cost; backed-byte accounting counts
++the demand units, not metadata, alternate signal stacks or other platform memory.
++
++## Sealed host tables (host-model evidence only)
++
++`ps5_demand_seal_readonly` is for host dispatch tables initialized once before
++publication. It protects backed units and publishes READ for future first-touch
++mappings; writes to an untouched hole are rejected too. The staging alias stays
++writable solely for zeroing newly allocated units. Seal waits for an in-flight
++map before protecting it. Failure requires destruction, not continued use.
++
++The host test seals a partially populated allocation, reads a fresh zero hole,
++and checks that writes to both populated and untouched units terminate with
++SIGSEGV. This extension has not been exercised on the console. It does not
++implement guest 4 KiB permissions or GPU coherence.
++
++## Shared runtime dispatcher regression
++
++The MKWBOOT-001 console log reached all three module loads/relocations, then
++failed to allocate its 74,973,184-byte dispatch table. The runtime had already
++installed a crash handler, which the automatic demand installer refused.
++The host test reproduces that rejection with the exact allocation size, binds
++an explicit dispatcher, and verifies sparse writes, zero holes, read-only
++sealing and rejection of writes/NX/unowned faults. Unbinding restores refusal
++of the still-installed custom handler. This is host evidence; the updated
++MKWBOOT-002 integration has not yet been exercised on the console.
++
++Owner-side ps5_demand_prepare initializes known ranges directly and records allocation/staging-map/data-map kernel failures in unit metadata. Results are published before FAILED; signal handling performs no logging. This is not a console fix proven for MKWBOOT-005.
++
++MKWBOOT-006 reports physical allocation success but staging MAP_FIXED failure 0x80020016 (fw9). On that error only, the private alias now uses the existing placement helper and is retained until region destruction. The public address, guards, zero-before-publication and protections remain enforced. Host tests cover successful fallback, rejection, zero fill, seal and cleanup; console validation pending.
++
++MKWBOOT-007 starts an additional guest thread, then rejects public MAP_FIXED at 0x820e50000 (stage3, 0x80020016). Both observed failures were between the low view area and the documented high area. Demand data/staging and alternate signal-stack reservations now request 0x1000000000 (64 GiB), as the Virtual space section of PROBE.md recommends for large arenas. Results below that bound are rejected and released. This is a placement correction awaiting a console run, not a claim that the entire intermediate interval is universally unmappable.
+diff --git a/platform/include/ps5platform/biglock.h b/platform/include/ps5platform/biglock.h
+new file mode 100644
+index 0000000..38f9c66
+--- /dev/null
++++ b/platform/include/ps5platform/biglock.h
+@@ -0,0 +1,88 @@
++/* Scalable reader/writer lock for the checked-memory hot paths. SPDX-License-Identifier: GPL-3.0-or-later
++ *
++ * Why: every guest load/store takes a registry gate and a region lock. With pthread_rwlock all threads bounce one
++ * cache line per acquisition (and every store/atomic took the lock exclusively). Here a reader increments a counter
++ * in one of 16 cache-line-sized stripes chosen from its stack address, so concurrent readers touch different lines.
++ * A writer excludes other writers with a mutex, raises a flag, and waits for every stripe to drain: writers are rare
++ * (map changes, protection, backing commits, 16-byte atomics) and pay the cost.
++ *
++ * Same semantics as a writer-preferring rwlock: readers overlap, a writer excludes everybody. A thread must not
++ * take the same lock for reading twice or upgrade read to write (as with pthread_rwlock). */
++#ifndef PS5PLATFORM_BIGLOCK_H
++#define PS5PLATFORM_BIGLOCK_H
++#include <pthread.h>
++#include <sched.h>
++#include <stdint.h>
++#define PS5_BIGLOCK_STRIPES 16u
++#define PS5_BIGLOCK_WRITER 0xffu
++typedef struct {
++   struct { _Alignas(64) int32_t n; } stripe[PS5_BIGLOCK_STRIPES];
++   _Alignas(64) int32_t writer;
++   pthread_mutex_t writers;
++   uint64_t since, queued;   /* time stamp counter when the current writer got the lock / asked for it (statistics) */
++   uintptr_t who;            /* the code that took it */
++} ps5_biglock;
++/* Statistics of who holds the lock exclusively and for how long (MKWBOOT-057): sched_yield from readers waiting for a writer
++ * was 9 percent of the CPU in the gameplay profile of 056. ps5_biglock_report() formats and clears them. */
++struct ps5_biglock_stat { uintptr_t who; uint64_t n, wait, hold, max; };
++extern struct ps5_biglock_stat ps5_biglock_tab[16];
++static inline void ps5_biglock_note(uintptr_t who, uint64_t wait, uint64_t hold)
++{
++   unsigned i = 0;
++   for (; i < 15; i++) {
++      uintptr_t w = __atomic_load_n(&ps5_biglock_tab[i].who, __ATOMIC_RELAXED);
++      if (w == who) break;
++      if (!w) { uintptr_t z = 0; if (__atomic_compare_exchange_n(&ps5_biglock_tab[i].who, &z, who, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED) || z == who) break; }
++   }
++   __atomic_fetch_add(&ps5_biglock_tab[i].n, 1, __ATOMIC_RELAXED);
++   __atomic_fetch_add(&ps5_biglock_tab[i].wait, wait, __ATOMIC_RELAXED);
++   __atomic_fetch_add(&ps5_biglock_tab[i].hold, hold, __ATOMIC_RELAXED);
++   uint64_t m = __atomic_load_n(&ps5_biglock_tab[i].max, __ATOMIC_RELAXED);
++   while (hold > m && !__atomic_compare_exchange_n(&ps5_biglock_tab[i].max, &m, hold, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {}
++}
++static inline int ps5_biglock_init(ps5_biglock *l)
++{
++   for (unsigned i = 0; i < PS5_BIGLOCK_STRIPES; i++) l->stripe[i].n = 0;
++   l->writer = 0;
++   return pthread_mutex_init(&l->writers, NULL);
++}
++static inline void ps5_biglock_destroy(ps5_biglock *l) { pthread_mutex_destroy(&l->writers); }
++static inline void ps5_biglock_wait(unsigned *spins)
++{
++   if (++*spins < 256) __builtin_ia32_pause();
++   else sched_yield();
++}
++static inline unsigned ps5_biglock_rdlock(ps5_biglock *l)
++{
++   /* The stack address differs per thread (and per guest fiber stack), so concurrent readers spread over stripes. */
++   uintptr_t here = (uintptr_t)__builtin_frame_address(0);
++   unsigned i = (unsigned)((here >> 12) ^ (here >> 17) ^ (here >> 23)) % PS5_BIGLOCK_STRIPES, spins = 0;
++   for (;;) {
++      while (__atomic_load_n(&l->writer, __ATOMIC_ACQUIRE)) ps5_biglock_wait(&spins);
++      __atomic_fetch_add(&l->stripe[i].n, 1, __ATOMIC_SEQ_CST);
++      if (!__atomic_load_n(&l->writer, __ATOMIC_SEQ_CST)) return i;
++      __atomic_fetch_sub(&l->stripe[i].n, 1, __ATOMIC_RELEASE);
++   }
++}
++static inline unsigned ps5_biglock_wrlock(ps5_biglock *l)
++{
++   unsigned spins = 0;
++   uint64_t asked = __builtin_ia32_rdtsc();
++   uintptr_t who = (uintptr_t)__builtin_return_address(0);
++   if (pthread_mutex_lock(&l->writers)) __builtin_trap();
++   __atomic_store_n(&l->writer, 1, __ATOMIC_SEQ_CST);
++   for (unsigned i = 0; i < PS5_BIGLOCK_STRIPES; i++)
++      while (__atomic_load_n(&l->stripe[i].n, __ATOMIC_ACQUIRE)) ps5_biglock_wait(&spins);
++   l->queued = asked; l->since = __builtin_ia32_rdtsc(); l->who = who;
++   return PS5_BIGLOCK_WRITER;
++}
++static inline void ps5_biglock_unlock(ps5_biglock *l, unsigned token)
++{
++   if (token == PS5_BIGLOCK_WRITER) {
++      uint64_t now = __builtin_ia32_rdtsc(), since = l->since, queued = l->queued; uintptr_t who = l->who;
++      __atomic_store_n(&l->writer, 0, __ATOMIC_RELEASE);
++      ps5_biglock_note(who, since - queued, now - since);
++      if (pthread_mutex_unlock(&l->writers)) __builtin_trap();
++   } else __atomic_fetch_sub(&l->stripe[token].n, 1, __ATOMIC_RELEASE);
++}
++#endif
+diff --git a/platform/include/ps5platform/checked_region.h b/platform/include/ps5platform/checked_region.h
+new file mode 100644
+index 0000000..1f50987
+--- /dev/null
++++ b/platform/include/ps5platform/checked_region.h
+@@ -0,0 +1,77 @@
++/* Checked CPU regions for loader bring-up. SPDX-License-Identifier: GPL-3.0-or-later */
++#ifndef PS5PLATFORM_CHECKED_REGION_H
++#define PS5PLATFORM_CHECKED_REGION_H
++#include <stddef.h>
++#include <stdint.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++enum { PS5_CHECKED_NONE = 0, PS5_CHECKED_READ = 1, PS5_CHECKED_RW = 3,
++       PS5_CHECKED_RESERVED = 4 };
++struct ps5_checked_region;
++/* The first kernel failure that poisoned any region (call, address, size, result code); empty if none did. */
++const char *ps5_checked_last_failure(void);
++/* Commits that got ENOMEM and were retried: how many commits, how many retries in all, and how many then succeeded. */
++void ps5_checked_commit_retries(uint64_t *events, uint64_t *attempts, uint64_t *recovered);
++/* Eager direct backing, fixed address aligned to 64 KiB, logical size in 4 KiB
++ * pages. Initial access is RW. No CPU code is executed from this region. */
++int ps5_checked_create(uintptr_t address, size_t bytes, struct ps5_checked_region **out);
++/* Large CPU-only reservation, initially uncommitted. Commit is logical only;
++ * reads of committed/unbacked pages return zeros, writes back 64 KiB units.
++ * Every access MUST use the checked API; raw faults are not serviced here. */
++int ps5_checked_create_sparse(uintptr_t address, size_t bytes, int watch, struct ps5_checked_region **out);
++int ps5_checked_commit(struct ps5_checked_region *, size_t offset, size_t bytes);
++int ps5_checked_decommit(struct ps5_checked_region *, size_t offset, size_t bytes);
++/* Preflight physical backing without changing guest bytes. Used by transactions
++ * crossing regions. Allocation/mapping failures poison the region, requiring
++ * destruction; no valid continued access is implied after such a failure. */
++int ps5_checked_prepare_write(struct ps5_checked_region *, size_t offset, size_t bytes);
++uint64_t ps5_checked_backed_bytes(struct ps5_checked_region *);
++/* Privileged copies through logical permissions, but never uncommitted pages.
++ * Host buffers remain trusted/nonaliasing. Writes participate in dirty tracking. */
++int ps5_checked_peek(struct ps5_checked_region *, size_t offset, void *, size_t bytes);
++int ps5_checked_poke(struct ps5_checked_region *, size_t offset, const void *, size_t bytes);
++/* Absolute addresses of reported dirty logical pages, ascending. Only reported
++ * entries are reset. UINT64_MAX for unwatched, poisoned or invalid queries. */
++uint64_t ps5_checked_written(struct ps5_checked_region *, size_t offset, size_t bytes,
++                              uint64_t *pages, size_t max, int reset);
++void ps5_checked_destroy(struct ps5_checked_region *region);
++/* destroy in two steps: retire releases the host range and makes every later access fail; free releases the metadata, once
++ * no reader can still hold the region pointer. */
++void ps5_checked_retire(struct ps5_checked_region *region);
++/* The per-page rights, the per-64 KiB backing flags (NULL for an eager region) and the per-page dirty bytes (NULL when not
++ * watched). The arrays live as long as the region; a poisoned or retired region has every page RESERVED. For runtime code that
++ * checks an access inline (ps5_cpu_memory.c). */
++unsigned char *ps5_checked_fast(const struct ps5_checked_region *region);   /* per 4 KiB: bit 0 direct read, bit 1 direct write allowed */
++void ps5_checked_arrays(const struct ps5_checked_region *region, unsigned char **rights, unsigned char **backed, unsigned char **dirty);
++void ps5_checked_free(struct ps5_checked_region *region);
++/* Every checked copy validates the whole span before touching it. Host buffers
++ * must be valid external buffers, not aliases of managed regions. */
++int ps5_checked_read(struct ps5_checked_region *region, size_t offset, void *host, size_t bytes);
++int ps5_checked_write(struct ps5_checked_region *region, size_t offset, const void *host, size_t bytes);
++/* Linearizable with all checked copies/protection changes, using the region lock
++ * and seq-cst fences. Width 1/2/4/8/16, naturally aligned. No interoperability
++ * guarantee with raw pointers, native atomics outside this API, or GPU accesses.
++ * CAS requires RW even on mismatch; failure updates expected, not guest data.
++ * Return value reports API validity; exchanged reports the CAS comparison. */
++int ps5_checked_atomic_load(struct ps5_checked_region *, size_t, void *, size_t);
++int ps5_checked_atomic_store(struct ps5_checked_region *, size_t, const void *, size_t);
++int ps5_checked_atomic_cas(struct ps5_checked_region *, size_t, void *expected,
++                           const void *desired, size_t, int *exchanged);
++/* Up to 16 bytes, host buffer outside every guest region, caller holding a gate that excludes protect/commit/decommit/
++ * unmap (ps5_guest_memory.c's registry gate, shared). 1 done, 0 rejected, -1 (write) the unit has no backing yet. */
++int ps5_checked_read_gated(struct ps5_checked_region *region, size_t offset, void *host, size_t bytes);
++int ps5_checked_write_gated(struct ps5_checked_region *region, size_t offset, const void *host, size_t bytes);
++int ps5_checked_protect(struct ps5_checked_region *region, size_t offset, size_t bytes, int access);
++int ps5_checked_access(struct ps5_checked_region *region, size_t offset);
++int ps5_checked_run(struct ps5_checked_region *, size_t offset, size_t limit, size_t *end);
++size_t ps5_checked_mixed_pages(struct ps5_checked_region *region);
++/* Address reporting only. Native pages have the UNION of their logical page
++ * rights. Raw pointers bypass 4 KiB checks on mixed pages: this API must NOT
++ * replace a guest CPU memory backend without access instrumentation. */
++uintptr_t ps5_checked_address(const struct ps5_checked_region *region);
++int ps5_biglock_report(char *buf, size_t size, double ticks_per_ns);   /* writers of the locks since the last call, by caller */
++#ifdef __cplusplus
++}
++#endif
++#endif
+diff --git a/platform/include/ps5platform/demand.h b/platform/include/ps5platform/demand.h
+new file mode 100644
+index 0000000..4614352
+--- /dev/null
++++ b/platform/include/ps5platform/demand.h
+@@ -0,0 +1,58 @@
++/* Experimental demand-backed CPU regions. SPDX-License-Identifier: GPL-3.0-or-later */
++#ifndef PS5PLATFORM_DEMAND_H
++#define PS5PLATFORM_DEMAND_H
++#include <stddef.h>
++#include <stdint.h>
++#include <signal.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++struct ps5_demand_region;
++/* Sizes round up to 64 KiB. Guard bytes stay inaccessible. Installation refuses
++ * an existing SIGSEGV handler unless explicitly bound as a shared dispatcher.
++ * Metadata and both virtual windows are allocated here, never in the handler. */
++int ps5_demand_create(size_t bytes, size_t guard, struct ps5_demand_region **out);
++/* A shared crash dispatcher must be installed with SA_SIGINFO first, then
++ * explicitly bound. New regions preserve that exact handler; an unrelated
++ * handler still causes creation to fail. NULL removes the binding only. */
++typedef void (*ps5_demand_dispatcher)(int, siginfo_t *, void *);
++int ps5_demand_bind_dispatcher(ps5_demand_dispatcher dispatcher);
++enum { PS5_DEMAND_READ = 0, PS5_DEMAND_WRITE = 1, PS5_DEMAND_EXECUTE = 2 };
++/* Signal-safe service for the bound dispatcher. It must pass the real access
++ * kind: execute and writes to sealed tables are rejected, never retried. */
++int ps5_demand_access(uintptr_t address, unsigned access);
++void *ps5_demand_data(const struct ps5_demand_region *region);
++size_t ps5_demand_size(const struct ps5_demand_region *region);
++size_t ps5_demand_reserved(const struct ps5_demand_region *region);
++/* Seal runtime lookup tables after initialization, before publishing them.
++ * Future read faults map read-only too; writes remain fatal. On failure the
++ * region must be destroyed rather than used with partial protection. */
++int ps5_demand_seal_readonly(struct ps5_demand_region *region);
++/* No users may access a region while it is destroyed. Other regions may fault. */
++void ps5_demand_destroy(struct ps5_demand_region *region);
++/* Signal-side service: no heap allocation or pthread locks. Uses exported
++ * direct-memory kernel operations. MKWPROBE-001 passed on a user's PS5, firmware
++ * reported as 9; see docs/DEMAND.md for scope. Returns 0 for an unowned address
++ * or a backing failure. */
++int ps5_demand_fault(uintptr_t address);
++/* Owner-side initialization, before publishing a stack. 0 = success; failure
++ * retains the native kernel result and phase, without logging in the handler.
++ * Caller keeps region alive. Offsets/sizes must stay inside the data window. */
++struct ps5_demand_failure { int stage, result; uintptr_t data, staging; int64_t physical; };
++enum { PS5_DEMAND_ALLOCATE = 1, PS5_DEMAND_MAP_STAGING = 2, PS5_DEMAND_MAP_DATA = 3 };
++int ps5_demand_prepare(struct ps5_demand_region *region, size_t offset, size_t bytes,
++                       struct ps5_demand_failure *failure);
++uint64_t ps5_demand_backed_bytes(void);
++/* Attach before running on a demand stack, detach after leaving it. Nestable.
++ * An existing alternate stack is borrowed; otherwise an eager one is installed. */
++int ps5_demand_thread_attach(void);
++void ps5_demand_thread_detach(void);
++/* For custom-stack pthreads: keep the alternate stack valid through pthread
++ * destructors. Retire the final attachment on the worker, release its token
++ * only after pthread_join confirms the worker has ended. */
++int ps5_demand_thread_retire(void **token);
++void ps5_demand_thread_release(void *token);
++#ifdef __cplusplus
++}
++#endif
++#endif
+diff --git a/platform/src/checked_region.c b/platform/src/checked_region.c
+new file mode 100644
+index 0000000..d2bb8c2
+--- /dev/null
++++ b/platform/src/checked_region.c
+@@ -0,0 +1,754 @@
++/* Checked loader regions; not an unchecked guest memory backend.
++ * SPDX-License-Identifier: GPL-3.0-or-later */
++#include "ps5platform/checked_region.h"
++#include "ps5platform/biglock.h"
++#include "ps5platform/kernel.h"
++#include "ps5platform/shm.h"
++#include <pthread.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <time.h>
++#include <string.h>
++
++// Locking: ps5_biglock (include/ps5platform/biglock.h). Readers overlap; protection, backing, 16-byte atomics and
++// metadata changes are exclusive. Plain data stores and atomics up to 8 bytes run shared on host atomics.
++// The first failure that poisoned a region, for fatal reports: which kernel call, where, and its result code.
++static char last_failure[384];
++static int last_failure_set;
++// What still works right after the first failure, to tell a size limit from a count limit: a small allocation, a larger
++// one, and mapping the small one anywhere. Every probe is undone at once. Runs once.
++#ifdef __PROSPERO__
++static void probe_after_failure(char *out, size_t cap)
++{
++   int64_t total = sceKernelGetDirectMemorySize(), at = -1, big = -1, small = -1;
++   size_t largest = 0;
++   int32_t a64 = sceKernelAllocateDirectMemory(0, total, 0x10000, 0x10000, PS5_KERNEL_DIRECT_TYPE_CPU, &at);
++   int32_t a2m = sceKernelAllocateDirectMemory(0, total, 0x200000, 0x200000, PS5_KERNEL_DIRECT_TYPE_CPU, &big);
++   int32_t a16 = sceKernelAllocateDirectMemory(0, total, 0x4000, 0x4000, PS5_KERNEL_DIRECT_TYPE_CPU, &small);
++   int32_t map = -1;
++   if (a64 == 0) {
++      void *where = NULL;
++      map = sceKernelMapDirectMemory(&where, 0x10000, PS5_KERNEL_PROT_CPU_READ, 0, at, 0x4000);
++      if (map == 0) sceKernelMunmap(where, 0x10000);
++   }
++   if (a64 == 0) sceKernelReleaseDirectMemory(at, 0x10000);
++   if (a2m == 0) sceKernelReleaseDirectMemory(big, 0x200000);
++   if (a16 == 0) sceKernelReleaseDirectMemory(small, 0x4000);
++   int64_t start = 0;
++   if (sceKernelAvailableDirectMemorySize(0, total, 0, &start, &largest)) largest = 0;
++   snprintf(out, cap, "; probe: alloc 64K=%#x 2M=%#x 16K=%#x, map 64K anywhere=%#x, largest free %llu MiB of %llu",
++            (unsigned)a64, (unsigned)a2m, (unsigned)a16, (unsigned)map, (unsigned long long)(largest >> 20),
++            (unsigned long long)(total >> 20));
++}
++#else
++static void probe_after_failure(char *out, size_t cap) { (void)out; (void)cap; }
++#endif
++static void note_failure(const char *what, uintptr_t address, size_t bytes, int result)
++{
++   if (__atomic_exchange_n(&last_failure_set, 1, __ATOMIC_ACQ_REL)) return;
++   int n = snprintf(last_failure, sizeof last_failure, "first failure: %s at %#llx +%#llx = %#x",
++                    what, (unsigned long long)address, (unsigned long long)bytes, (unsigned)result);
++   if (n > 0 && (size_t)n < sizeof last_failure) probe_after_failure(last_failure + n, sizeof last_failure - (size_t)n);
++}
++const char *ps5_checked_last_failure(void) { return last_failure; }
++static uint64_t retry_events, retry_attempts, retry_recovered;
++void ps5_checked_commit_retries(uint64_t *events, uint64_t *attempts, uint64_t *recovered)
++{
++   *events = __atomic_load_n(&retry_events, __ATOMIC_RELAXED);
++   *attempts = __atomic_load_n(&retry_attempts, __ATOMIC_RELAXED);
++   *recovered = __atomic_load_n(&retry_recovered, __ATOMIC_RELAXED);
++}
++#define LOGICAL ((size_t)0x1000)
++#define NATIVE ((size_t)0x4000)
++#define UNIT ((size_t)0x10000)
++struct ps5_checked_region {
++   uintptr_t base;
++   size_t bytes, reserved, pages;
++   unsigned char *rights;
++   unsigned char *backed, *dirty;
++   /* MKWBOOT-058: per 4 KiB, what the game code may do directly without asking: bit 0 read, bit 1 write; 0 when the page is
++    * reserved, its 64 KiB is not backed or the region is poisoned. The generated game code reads it inline (runtime cpu.h),
++    * so it only ever grants after the host mapping allows the access and drops before the mapping stops allowing it.
++    * Lives right after rights in the same allocation. */
++   unsigned char *fast;
++   ps5_biglock lock;
++   int poisoned;
++   int retired;
++};
++static int span(struct ps5_checked_region *r, size_t offset, size_t bytes)
++{
++   return !r->poisoned && offset <= r->bytes && bytes <= r->bytes - offset;
++}
++// A poisoned or retired region must refuse every access, including the inline fast path of the runtime that reads the rights
++// array directly (ps5_cpu_memory.c): every page becomes RESERVED, which has neither the read nor the write bit.
++static void invalidate(struct ps5_checked_region *r)
++{
++   __atomic_store_n(&r->poisoned, 1, __ATOMIC_RELEASE);
++   if (r->fast) memset(r->fast, 0, r->pages);
++   if (r->rights) memset(r->rights, PS5_CHECKED_RESERVED, r->pages);
++}
++/* fast[] from rights[] and backed[] for pages [first, last): call after a change that grants (mapping already allows it) */
++static void fast_refresh(struct ps5_checked_region *r, size_t first, size_t last)
++{
++   if (last > r->pages) last = r->pages;
++   for (size_t p = first; p < last; p++) {
++      unsigned char v = r->poisoned || (r->backed && !r->backed[p * LOGICAL / UNIT]) ? 0 : (unsigned char)(r->rights[p] & 3);
++      if (r->rights[p] == PS5_CHECKED_RESERVED) v = 0;
++      __atomic_store_n(&r->fast[p], v, __ATOMIC_RELEASE);
++   }
++}
++/* before a change that may take rights away: keep only what both the old and the new rights allow */
++static void fast_drop(struct ps5_checked_region *r, size_t first, size_t last, unsigned char keep)
++{
++   if (last > r->pages) last = r->pages;
++   for (size_t p = first; p < last; p++) __atomic_store_n(&r->fast[p], (unsigned char)(r->fast[p] & keep), __ATOMIC_RELEASE);
++}
++static int aggregate(const struct ps5_checked_region *r, size_t native_page)
++{
++   int access = 0;
++   for (size_t i = native_page * 4; i < native_page * 4 + 4 && i < r->pages; i++)
++      if (r->rights[i] != PS5_CHECKED_RESERVED) access |= r->rights[i];
++   return access;
++}
++/* MKWBOOT-063: one sceKernelMprotect per run of contiguous backed native pages with the same protection, not one per
++ * 16 KiB page: ps5_checked_protect held the exclusive lock 385 ms of every 5 s in a race (MKWBOOT-062), up to 6 ms a call. */
++static int apply(struct ps5_checked_region *r, size_t first, size_t last)
++{
++   size_t page = first;
++   while (page < last) {
++      if (r->backed && !r->backed[page * NATIVE / UNIT]) { page++; continue; }
++      int prot = aggregate(r, page);
++      size_t end = page + 1;
++      while (end < last && !(r->backed && !r->backed[end * NATIVE / UNIT]) && aggregate(r, end) == prot) end++;
++      int rc = sceKernelMprotect((void *)(r->base + page * NATIVE), (end - page) * NATIVE, prot);
++      if (rc) { note_failure("sceKernelMprotect", r->base + page * NATIVE, (end - page) * NATIVE, rc); return 0; }
++      page = end;
++   }
++   return 1;
++}
++static int create_region(uintptr_t address, size_t bytes, int sparse, int watch, struct ps5_checked_region **out)
++{
++   if (!out) return 0;
++   *out = NULL;
++   if (!address || address % UNIT || !bytes || bytes % LOGICAL || bytes > SIZE_MAX - UNIT) return 0;
++   size_t reserved = (bytes + UNIT - 1) & ~(UNIT - 1);
++   if (address > UINTPTR_MAX - reserved) return 0;
++   struct ps5_checked_region *r = calloc(1, sizeof(*r));
++   if (!r) return 0;
++   r->rights = malloc(2 * (bytes / LOGICAL));
++   if (!r->rights) { free(r); return 0; }
++   r->fast = r->rights + bytes / LOGICAL;
++   if (sparse) r->backed = calloc(reserved / UNIT, 1);
++   if (watch) r->dirty = calloc(bytes / LOGICAL, 1);
++   if ((sparse && !r->backed) || (watch && !r->dirty)) {
++      free(r->dirty); free(r->backed); free(r->rights); free(r); return 0;
++   }
++   if (ps5_biglock_init(&r->lock)) { free(r->dirty); free(r->backed); free(r->rights); free(r); return 0; }
++   if (ps5_vrange_reserve_at((void *)address, reserved)) goto fail;
++   if (!sparse && ps5_vrange_commit((void *)address, bytes, PS5_SHM_READ | PS5_SHM_WRITE)) {
++      ps5_vrange_release((void *)address, reserved);
++      goto fail;
++   }
++   r->base = address; r->bytes = bytes; r->reserved = reserved; r->pages = bytes / LOGICAL;
++   memset(r->rights, sparse ? PS5_CHECKED_RESERVED : PS5_CHECKED_RW, r->pages);
++   memset(r->fast, sparse ? 0 : 3, r->pages);
++   *out = r;
++   return 1;
++fail:
++   ps5_biglock_destroy(&r->lock);
++   free(r->dirty); free(r->backed); free(r->rights); free(r);
++   return 0;
++}
++int ps5_checked_create(uintptr_t address, size_t bytes, struct ps5_checked_region **out)
++{ return create_region(address, bytes, 0, 0, out); }
++int ps5_checked_create_sparse(uintptr_t address, size_t bytes, int watch, struct ps5_checked_region **out)
++{ return create_region(address, bytes, 1, watch, out); }
++// Retire, then free, so a lock-free reader that still holds the region (ps5_guest_memory.c, MKWBOOT-042) finds poisoned
++// metadata instead of freed memory: the retired region refuses every access and the host range is released at once; the
++// metadata is freed later by ps5_checked_free, once no reader can still hold it.
++void ps5_checked_arrays(const struct ps5_checked_region *r, unsigned char **rights, unsigned char **backed, unsigned char **dirty)
++{
++   *rights = r->rights; *backed = r->backed; *dirty = r->dirty;
++}
++unsigned char *ps5_checked_fast(const struct ps5_checked_region *r) { return r->fast; }
++void ps5_checked_retire(struct ps5_checked_region *r)
++{
++   if (!r || __atomic_exchange_n(&r->retired, 1, __ATOMIC_ACQ_REL)) return;
++   invalidate(r);
++   if (ps5_vrange_release((void *)r->base, r->reserved)) __builtin_trap();
++}
++void ps5_checked_free(struct ps5_checked_region *r)
++{
++   if (!r) return;
++   ps5_biglock_destroy(&r->lock);
++   free(r->dirty); free(r->backed); free(r->rights); free(r);
++}
++void ps5_checked_destroy(struct ps5_checked_region *r)
++{
++   if (!r) return;
++   // The caller has stopped all users before destruction.
++   ps5_checked_retire(r);
++   ps5_checked_free(r);
++}
++static int committed(struct ps5_checked_region *r, size_t offset, size_t bytes)
++{
++   if (!span(r, offset, bytes)) return 0;
++   if (!bytes) return 1;
++   for (size_t p = offset / LOGICAL; p <= (offset + bytes - 1) / LOGICAL; p++)
++      if (r->rights[p] == PS5_CHECKED_RESERVED) return 0;
++   return 1;
++}
++static int ensure_backing_units(struct ps5_checked_region *r, size_t offset, size_t bytes);
++/* MKWBOOT-073: the units still unbacked in [offset, offset + bytes) are committed a run at a time: one ps5_vrange_commit and
++ * one protection pass for each run of consecutive unbacked 64 KiB units, not one of each per unit. The game streams assets
++ * in a race (romfs reads and zstd output into fresh guest memory) and every unit cost several system calls under the
++ * exclusive lock while every other thread waited (the 0.5-2 s stalls of 072). A run whose commit fails goes unit by unit
++ * through the path below, with its ENOMEM retries and poison, exactly as before. */
++static int ensure_backing(struct ps5_checked_region *r, size_t offset, size_t bytes)
++{
++   if (!r->backed || !bytes) return 1;
++   size_t u = offset / UNIT, last = (offset + bytes - 1) / UNIT;
++   while (u <= last) {
++      if (r->backed[u]) { u++; continue; }
++      size_t end = u + 1;
++      while (end <= last && !r->backed[end]) end++;
++      if (end - u > 1 && !ps5_vrange_commit((void *)(r->base + u * UNIT), (end - u) * UNIT, PS5_SHM_READ | PS5_SHM_WRITE)) {
++         for (size_t k = u; k < end; k++) __atomic_store_n(&r->backed[k], 1, __ATOMIC_RELEASE);
++         if (!apply(r, u * UNIT / NATIVE, end * UNIT / NATIVE)) { invalidate(r); return 0; }
++         fast_refresh(r, u * UNIT / LOGICAL, end * UNIT / LOGICAL);
++      } else if (!ensure_backing_units(r, u * UNIT, (end - u) * UNIT)) return 0;
++      u = end;
++   }
++   return 1;
++}
++static int ensure_backing_units(struct ps5_checked_region *r, size_t offset, size_t bytes)
++{
++   if (!r->backed || !bytes) return 1;
++   for (size_t u = offset / UNIT; u <= (offset + bytes - 1) / UNIT; u++) {
++      if (r->backed[u]) continue;
++      int rc = ps5_vrange_commit((void *)(r->base + u * UNIT), UNIT, PS5_SHM_READ | PS5_SHM_WRITE);
++      // MKWBOOT-033: ENOMEM (0x8002000c) from the console's fixed-address map came with 6+ GiB free and everything else
++      // still granted a moment later (MKWBOOT-029..032), so it may be transient. Retry for up to ~0.4 s before poisoning
++      // the region, and count it: ps5_checked_commit_retries() tells whether this ever helped.
++      if (rc == (int)0x8002000c) {
++         for (int attempt = 0; rc == (int)0x8002000c && attempt < 200; attempt++) {
++            struct timespec pause = {0, 2000000};
++            nanosleep(&pause, NULL);
++            rc = ps5_vrange_commit((void *)(r->base + u * UNIT), UNIT, PS5_SHM_READ | PS5_SHM_WRITE);
++            __atomic_add_fetch(&retry_attempts, 1, __ATOMIC_RELAXED);
++         }
++         __atomic_add_fetch(&retry_events, 1, __ATOMIC_RELAXED);
++         if (!rc) __atomic_add_fetch(&retry_recovered, 1, __ATOMIC_RELAXED);
++      }
++      if (rc) {
++         note_failure("ps5_vrange_commit", r->base + u * UNIT, UNIT, rc);
++         invalidate(r); return 0;
++      }
++      __atomic_store_n(&r->backed[u], 1, __ATOMIC_RELEASE);   // gated readers (below) take no lock: they see the unit only once it is mapped
++      if (!apply(r, u * UNIT / NATIVE, (u + 1) * UNIT / NATIVE)) { invalidate(r); return 0; }
++      fast_refresh(r, u * UNIT / LOGICAL, (u + 1) * UNIT / LOGICAL);
++   }
++   return 1;
++}
++// Naturally aligned 1/2/4/8-byte accesses are single host loads/stores, as on the console: a plain store racing an
++// atomic never tears. Region bases are 64 KiB aligned, so an aligned offset is an aligned host address.
++static int small_access(size_t offset, size_t bytes)
++{
++   return (bytes == 1 || bytes == 2 || bytes == 4 || bytes == 8) && !(offset % bytes);
++}
++typedef unsigned char vec16 __attribute__((vector_size(16)));
++// Aligned 16-byte accesses (guest vector loads/stores) are one host vector access: a larger write stays exclusive, so
++// a reader never sees part of it (test_ps5_memory_readers), and a 16-byte one is a single instruction either way.
++static int vector_access(size_t offset, size_t bytes) { return bytes == 16 && !(offset % 16); }
++static int backed_all(struct ps5_checked_region *r, size_t offset, size_t bytes)
++{
++   if (!r->backed || !bytes) return 1;
++   for (size_t u = offset / UNIT; u <= (offset + bytes - 1) / UNIT; u++) if (!r->backed[u]) return 0;
++   return 1;
++}
++static void load_small(const void *src, void *out, size_t n, int order)
++{
++   switch (n) {
++   case 1: { uint8_t v = __atomic_load_n((const uint8_t *)src, order); memcpy(out, &v, 1); break; }
++   case 2: { uint16_t v = __atomic_load_n((const uint16_t *)src, order); memcpy(out, &v, 2); break; }
++   case 4: { uint32_t v = __atomic_load_n((const uint32_t *)src, order); memcpy(out, &v, 4); break; }
++   default: { uint64_t v = __atomic_load_n((const uint64_t *)src, order); memcpy(out, &v, 8); break; }
++   }
++}
++static void store_small(void *dst, const void *in, size_t n, int order)
++{
++   switch (n) {
++   case 1: { uint8_t v; memcpy(&v, in, 1); __atomic_store_n((uint8_t *)dst, v, order); break; }
++   case 2: { uint16_t v; memcpy(&v, in, 2); __atomic_store_n((uint16_t *)dst, v, order); break; }
++   case 4: { uint32_t v; memcpy(&v, in, 4); __atomic_store_n((uint32_t *)dst, v, order); break; }
++   default: { uint64_t v; memcpy(&v, in, 8); __atomic_store_n((uint64_t *)dst, v, order); break; }
++   }
++}
++static void read_bytes(struct ps5_checked_region *r, size_t offset, void *out, size_t bytes)
++{
++   unsigned char *dst = out;
++   if (small_access(offset, bytes) && (!r->backed || r->backed[offset / UNIT])) {
++      load_small((void *)(r->base + offset), out, bytes, __ATOMIC_RELAXED);
++      return;
++   }
++   if (vector_access(offset, bytes) && (!r->backed || r->backed[offset / UNIT])) {
++      vec16 v = *(volatile const vec16 *)(r->base + offset);
++      memcpy(out, &v, 16);
++      return;
++   }
++   while (bytes) {
++      size_t part = UNIT - offset % UNIT; if (part > bytes) part = bytes;
++      if (r->backed && !r->backed[offset / UNIT]) memset(dst, 0, part);
++      else memcpy(dst, (void *)(r->base + offset), part);
++      offset += part; dst += part; bytes -= part;
++   }
++}
++static void dirty(struct ps5_checked_region *r, size_t offset, size_t bytes)
++{
++   // Written only when still clear: a store to a page already marked must not write the shared byte again (every thread
++   // storing near it bounced the cache line: 4 threads took 310 ns a store against 20 ns for one).
++   if (!r->dirty || !bytes) return;
++   for (size_t p = offset / LOGICAL, last = (offset + bytes - 1) / LOGICAL; p <= last; p++)
++      if (!__atomic_load_n(&r->dirty[p], __ATOMIC_RELAXED)) __atomic_store_n(&r->dirty[p], 1, __ATOMIC_RELAXED);
++}
++static int allowed(struct ps5_checked_region *r, size_t offset, size_t bytes, int bit)
++{
++   if (!span(r, offset, bytes)) return 0;
++   if (!bytes) return 1;
++   size_t end = (offset + bytes - 1) / LOGICAL;
++   for (size_t p = offset / LOGICAL; p <= end; p++) if (!(r->rights[p] & bit)) return 0;
++   return 1;
++}
++static int external_buffer(struct ps5_checked_region *r, const void *host, size_t bytes)
++{
++   if (!bytes) return 1;
++   uintptr_t at = (uintptr_t)host;
++   if (!host || at > UINTPTR_MAX - bytes) return 0;
++   return at + bytes <= r->base || at >= r->base + r->reserved;
++}
++
++// ---- Gated access (MKWBOOT-038). The caller holds the registry gate shared (ps5_guest_memory.c): protect, commit,
++// decommit, prepare_write, poke/peek, 16-byte atomics and unmap all take that gate exclusively first, so they cannot run
++// meanwhile and the region lock would only repeat it. Up to 16 bytes, host buffer known to be outside the guest. Backing
++// is the one thing a shared holder cannot create: an unbacked unit answers -1 (a store) and the caller takes the slow path.
++int ps5_checked_read_gated(struct ps5_checked_region *r, size_t offset, void *host, size_t bytes)
++{
++   if (!allowed(r, offset, bytes, 1)) return 0;
++   if (r->backed && !__atomic_load_n(&r->backed[offset / UNIT], __ATOMIC_ACQUIRE)) { memset(host, 0, bytes); return 1; }
++   if (small_access(offset, bytes)) load_small((void *)(r->base + offset), host, bytes, __ATOMIC_RELAXED);
++   else if (vector_access(offset, bytes)) { vec16 v = *(volatile const vec16 *)(r->base + offset); memcpy(host, &v, 16); }
++   else read_bytes(r, offset, host, bytes);
++   return 1;
++}
++int ps5_checked_write_gated(struct ps5_checked_region *r, size_t offset, const void *host, size_t bytes)
++{
++   if (!allowed(r, offset, bytes, 2)) return 0;
++   if (r->backed) {
++      if (!__atomic_load_n(&r->backed[offset / UNIT], __ATOMIC_ACQUIRE)) return -1;
++      if ((offset + bytes - 1) / UNIT != offset / UNIT && !__atomic_load_n(&r->backed[(offset + bytes - 1) / UNIT], __ATOMIC_ACQUIRE)) return -1;
++   }
++   if (small_access(offset, bytes)) store_small((void *)(r->base + offset), host, bytes, __ATOMIC_RELAXED);
++   else if (vector_access(offset, bytes)) { vec16 v; memcpy(&v, host, 16); *(volatile vec16 *)(r->base + offset) = v; }
++   else memcpy((void *)(r->base + offset), host, bytes);
++   dirty(r, offset, bytes);
++   return 1;
++}
++int ps5_checked_read(struct ps5_checked_region *r, size_t offset, void *host, size_t bytes)
++{
++   unsigned lt = ps5_biglock_rdlock(&r->lock);
++   int ok = allowed(r, offset, bytes, 1) && external_buffer(r, host, bytes);
++   if (ok && bytes) read_bytes(r, offset, host, bytes);
++   ps5_biglock_unlock(&r->lock, lt);
++   return ok;
++}
++int ps5_checked_write(struct ps5_checked_region *r, size_t offset, const void *host, size_t bytes)
++{
++   // Shared when every touched 64 KiB unit is already backed: data stores need exclusion only from protection and
++   // backing changes, which take the lock exclusively. Racing stores to one address are the guest's own race.
++   // Only up to 16 bytes (a guest scalar or vector store, one host access). Anything larger keeps whole-operation
++   // exclusion, as the contract says: a concurrent reader never sees half of a bulk write.
++   unsigned lt;
++   int ok;
++   if (bytes <= 16) {
++      lt = ps5_biglock_rdlock(&r->lock);
++      ok = allowed(r, offset, bytes, 2) && external_buffer(r, host, bytes);
++      if (ok && backed_all(r, offset, bytes)) {
++         if (bytes) {
++            if (small_access(offset, bytes)) store_small((void *)(r->base + offset), host, bytes, __ATOMIC_RELAXED);
++            else if (vector_access(offset, bytes)) { vec16 v; memcpy(&v, host, 16); *(volatile vec16 *)(r->base + offset) = v; }
++            else memcpy((void *)(r->base + offset), host, bytes);
++            dirty(r, offset, bytes);
++         }
++         ps5_biglock_unlock(&r->lock, lt);
++         return 1;
++      }
++      ps5_biglock_unlock(&r->lock, lt);
++      if (!ok) return 0;
++   }
++   lt = ps5_biglock_wrlock(&r->lock);
++   ok = allowed(r, offset, bytes, 2) && external_buffer(r, host, bytes) && ensure_backing(r, offset, bytes);
++   if (ok && bytes) { memcpy((void *)(r->base + offset), host, bytes); dirty(r, offset, bytes); }
++   ps5_biglock_unlock(&r->lock, lt);
++   return ok;
++}
++/* MKWBOOT-071: 16-byte atomics under the shared lock, with the CPU's own instructions: an aligned 16-byte AVX load is atomic
++ * on the console's CPU (AMD APM: aligned 16-byte accesses are atomic on processors with AVX), and LOCK CMPXCHG16B does the
++ * exchange (it always writes the line, so only on writable, backed pages). The game's lock-free queues use them all the
++ * time; the exclusive lock made every one of them wait for the others (umtx and sched_yield from ps5_checked_atomic_cas, 070). */
++#if defined(__x86_64__)
++#define HAVE_CAS16 1
++typedef unsigned __int128 u128_t;
++static inline int cas16(void *at, u128_t *expected, u128_t desired)
++{
++   uint64_t elo = (uint64_t)*expected, ehi = (uint64_t)(*expected >> 64), dlo = (uint64_t)desired, dhi = (uint64_t)(desired >> 64);
++   unsigned char ok;
++   __asm__ volatile("lock cmpxchg16b %1\n\tsete %0"
++                    : "=q"(ok), "+m"(*(volatile u128_t *)at), "+a"(elo), "+d"(ehi)
++                    : "b"(dlo), "c"(dhi)
++                    : "memory", "cc");
++   *expected = ((u128_t)ehi << 64) | elo;
++   return ok;
++}
++static inline u128_t load16(const void *at)
++{
++   typedef long long v2 __attribute__((vector_size(16)));
++   v2 v;
++   __asm__ volatile("vmovdqa %1, %0" : "=x"(v) : "m"(*(const volatile v2 *)at) : "memory");
++   u128_t r; memcpy(&r, &v, 16); return r;
++}
++#endif
++static int atomic_width(size_t offset, size_t bytes)
++{
++   return (bytes == 1 || bytes == 2 || bytes == 4 || bytes == 8 || bytes == 16) && !(offset % bytes);
++}
++int ps5_checked_atomic_load(struct ps5_checked_region *r, size_t offset, void *out, size_t bytes)
++{
++   if (bytes != 16) {   // up to 8 bytes: a host atomic under the shared lock
++      unsigned ft = ps5_biglock_rdlock(&r->lock);
++      int fast = atomic_width(offset, bytes) && allowed(r, offset, bytes, 1) && external_buffer(r, out, bytes);
++      if (fast) {
++         if (r->backed && !r->backed[offset / UNIT]) memset(out, 0, bytes);
++         else load_small((void *)(r->base + offset), out, bytes, __ATOMIC_SEQ_CST);
++      }
++      ps5_biglock_unlock(&r->lock, ft);
++      return fast;
++   }
++#ifdef HAVE_CAS16
++   {
++      unsigned ft = ps5_biglock_rdlock(&r->lock);
++      int fast = atomic_width(offset, bytes) && allowed(r, offset, bytes, 1) && external_buffer(r, out, bytes);
++      if (fast) {
++         if (r->backed && !r->backed[offset / UNIT]) memset(out, 0, 16);
++         else { __atomic_thread_fence(__ATOMIC_SEQ_CST); u128_t v = load16((const void *)(r->base + offset)); memcpy(out, &v, 16); __atomic_thread_fence(__ATOMIC_SEQ_CST); }
++      }
++      ps5_biglock_unlock(&r->lock, ft);
++      return fast;
++   }
++#endif
++   unsigned lt = ps5_biglock_wrlock(&r->lock);
++   int ok = atomic_width(offset, bytes) && allowed(r, offset, bytes, 1) && external_buffer(r, out, bytes);
++   if (ok) {
++      __atomic_thread_fence(__ATOMIC_SEQ_CST);
++      read_bytes(r, offset, out, bytes);
++      __atomic_thread_fence(__ATOMIC_SEQ_CST);
++   }
++   ps5_biglock_unlock(&r->lock, lt);
++   return ok;
++}
++int ps5_checked_atomic_store(struct ps5_checked_region *r, size_t offset, const void *in, size_t bytes)
++{
++   if (bytes != 16) {
++      unsigned ft = ps5_biglock_rdlock(&r->lock);
++      int fast = atomic_width(offset, bytes) && allowed(r, offset, bytes, 2) && external_buffer(r, in, bytes);
++      if (fast && backed_all(r, offset, bytes)) {
++         store_small((void *)(r->base + offset), in, bytes, __ATOMIC_SEQ_CST);
++         dirty(r, offset, bytes);
++         ps5_biglock_unlock(&r->lock, ft);
++         return 1;
++      }
++      ps5_biglock_unlock(&r->lock, ft);
++      if (!fast) return 0;   // unbacked unit: the exclusive path below commits it
++   }
++#ifdef HAVE_CAS16
++   else {
++      unsigned ft = ps5_biglock_rdlock(&r->lock);
++      int fast = atomic_width(offset, bytes) && allowed(r, offset, bytes, 2) && external_buffer(r, in, bytes);
++      if (fast && backed_all(r, offset, bytes)) {
++         void *at = (void *)(r->base + offset);
++         u128_t want, seen = load16(at);
++         memcpy(&want, in, 16);
++         while (!cas16(at, &seen, want)) {}
++         dirty(r, offset, bytes);
++         ps5_biglock_unlock(&r->lock, ft);
++         return 1;
++      }
++      ps5_biglock_unlock(&r->lock, ft);
++      if (!fast) return 0;
++   }
++#endif
++   unsigned lt = ps5_biglock_wrlock(&r->lock);
++   int ok = atomic_width(offset, bytes) && allowed(r, offset, bytes, 2) && external_buffer(r, in, bytes) && ensure_backing(r, offset, bytes);
++   if (ok) {
++      __atomic_thread_fence(__ATOMIC_SEQ_CST);
++      memcpy((void *)(r->base + offset), in, bytes);
++      dirty(r, offset, bytes);
++      __atomic_thread_fence(__ATOMIC_SEQ_CST);
++   }
++   ps5_biglock_unlock(&r->lock, lt);
++   return ok;
++}
++int ps5_checked_atomic_cas(struct ps5_checked_region *r, size_t offset, void *expected,
++                           const void *desired, size_t bytes, int *exchanged)
++{
++   if (bytes != 16) {
++      unsigned ft = ps5_biglock_rdlock(&r->lock);
++      int fast = atomic_width(offset, bytes) && allowed(r, offset, bytes, 1) && allowed(r, offset, bytes, 2) &&
++                 external_buffer(r, expected, bytes) && external_buffer(r, desired, bytes) &&
++                 external_buffer(r, exchanged, sizeof *exchanged);
++      if (fast && backed_all(r, offset, bytes)) {
++         void *at = (void *)(r->base + offset);
++         unsigned char exp[8], want[8];
++         memcpy(exp, expected, bytes); memcpy(want, desired, bytes);
++         int equal;
++         switch (bytes) {
++         case 1: { uint8_t e = exp[0], w = want[0]; equal = __atomic_compare_exchange_n((uint8_t *)at, &e, w, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); exp[0] = e; break; }
++         case 2: { uint16_t e, w; memcpy(&e, exp, 2); memcpy(&w, want, 2); equal = __atomic_compare_exchange_n((uint16_t *)at, &e, w, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); memcpy(exp, &e, 2); break; }
++         case 4: { uint32_t e, w; memcpy(&e, exp, 4); memcpy(&w, want, 4); equal = __atomic_compare_exchange_n((uint32_t *)at, &e, w, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); memcpy(exp, &e, 4); break; }
++         default: { uint64_t e, w; memcpy(&e, exp, 8); memcpy(&w, want, 8); equal = __atomic_compare_exchange_n((uint64_t *)at, &e, w, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); memcpy(exp, &e, 8); break; }
++         }
++         if (equal) dirty(r, offset, bytes);
++         else memcpy(expected, exp, bytes);   // a failed CAS updates expected, never guest data
++         *exchanged = equal;
++         ps5_biglock_unlock(&r->lock, ft);
++         return 1;
++      }
++      ps5_biglock_unlock(&r->lock, ft);
++      if (!fast) return 0;
++   }
++#ifdef HAVE_CAS16
++   else {
++      unsigned ft = ps5_biglock_rdlock(&r->lock);
++      int fast = atomic_width(offset, bytes) && allowed(r, offset, bytes, 1) && allowed(r, offset, bytes, 2) &&
++                 external_buffer(r, expected, bytes) && external_buffer(r, desired, bytes) &&
++                 external_buffer(r, exchanged, sizeof *exchanged);
++      if (fast && backed_all(r, offset, bytes)) {
++         u128_t exp, want;
++         memcpy(&exp, expected, 16); memcpy(&want, desired, 16);
++         int equal = cas16((void *)(r->base + offset), &exp, want);
++         if (equal) dirty(r, offset, bytes);
++         else memcpy(expected, &exp, 16);   // a failed CAS updates expected, never guest data
++         *exchanged = equal;
++         ps5_biglock_unlock(&r->lock, ft);
++         return 1;
++      }
++      ps5_biglock_unlock(&r->lock, ft);
++      if (!fast) return 0;
++   }
++#endif
++   unsigned lt = ps5_biglock_wrlock(&r->lock);
++   int ok = atomic_width(offset, bytes) && allowed(r, offset, bytes, 1) && allowed(r, offset, bytes, 2) &&
++            external_buffer(r, expected, bytes) && external_buffer(r, desired, bytes) &&
++            external_buffer(r, exchanged, sizeof *exchanged);
++   if (ok) {
++      unsigned char want[16], actual[16]; memcpy(want, desired, bytes);
++      __atomic_thread_fence(__ATOMIC_SEQ_CST);
++      read_bytes(r, offset, actual, bytes);
++      int equal = !memcmp(actual, expected, bytes);
++      if (equal && !ensure_backing(r, offset, bytes)) ok = 0;
++      if (ok) {
++         if (equal) { memcpy((void *)(r->base + offset), want, bytes); dirty(r, offset, bytes); }
++         else memcpy(expected, actual, bytes);
++         __atomic_thread_fence(__ATOMIC_SEQ_CST);
++         *exchanged = equal;
++      }
++   }
++   ps5_biglock_unlock(&r->lock, lt);
++   return ok;
++}
++int ps5_checked_protect(struct ps5_checked_region *r, size_t offset, size_t bytes, int access)
++{
++   if (offset % LOGICAL || bytes % LOGICAL || (access != 0 && access != 1 && access != 3)) return 0;
++   unsigned lt = ps5_biglock_wrlock(&r->lock);
++   if (!committed(r, offset, bytes)) { ps5_biglock_unlock(&r->lock, lt); return 0; }
++   if (!bytes) { ps5_biglock_unlock(&r->lock, lt); return 1; }
++   size_t pages = bytes / LOGICAL, start = offset / LOGICAL;
++   unsigned char *old = malloc(pages);
++   if (!old) { ps5_biglock_unlock(&r->lock, lt); return 0; }
++   memcpy(old, r->rights + start, pages);
++   fast_drop(r, start, start + pages, (unsigned char)(access & 3));
++   memset(r->rights + start, access, pages);
++   size_t first = offset / NATIVE, last = (offset + bytes + NATIVE - 1) / NATIVE;
++   int ok = apply(r, first, last);
++   if (!ok) {
++      memcpy(r->rights + start, old, pages);
++      if (!apply(r, first, last)) invalidate(r);
++   }
++   if (!r->poisoned) fast_refresh(r, start, start + pages);
++   free(old);
++   ps5_biglock_unlock(&r->lock, lt);
++   return ok;
++}
++int ps5_checked_access(struct ps5_checked_region *r, size_t offset)
++{
++   unsigned lt = ps5_biglock_rdlock(&r->lock);
++   int result = !r->poisoned && offset < r->bytes ? r->rights[offset / LOGICAL] : -1;
++   ps5_biglock_unlock(&r->lock, lt);
++   return result;
++}
++int ps5_checked_run(struct ps5_checked_region *r, size_t offset, size_t limit, size_t *end)
++{
++   unsigned lt = ps5_biglock_rdlock(&r->lock);
++   int result = !r->poisoned && offset < r->bytes && offset < limit ? r->rights[offset / LOGICAL] : -1;
++   size_t at = offset;
++   if (result >= 0) {
++      size_t page = offset / LOGICAL;
++      while (page < r->pages && page * LOGICAL < limit && r->rights[page] == result) page++;
++      at = page * LOGICAL; if (at > limit) at = limit;
++   }
++   if (end) *end = at;
++   ps5_biglock_unlock(&r->lock, lt); return result;
++}
++size_t ps5_checked_mixed_pages(struct ps5_checked_region *r)
++{
++   unsigned lt = ps5_biglock_rdlock(&r->lock);
++   size_t mixed = 0;
++   for (size_t p = 0; p < r->pages; p += 4) {
++      int first = r->rights[p];
++      for (size_t i = p + 1; i < p + 4; i++)
++         if ((i < r->pages ? r->rights[i] : 0) != first) { mixed++; break; }
++   }
++   ps5_biglock_unlock(&r->lock, lt);
++   return mixed;
++}
++uintptr_t ps5_checked_address(const struct ps5_checked_region *r) { return r->base; }
++int ps5_checked_prepare_write(struct ps5_checked_region *r, size_t offset, size_t bytes)
++{
++   unsigned lt = ps5_biglock_wrlock(&r->lock);
++   int ok = allowed(r, offset, bytes, 2) && ensure_backing(r, offset, bytes);
++   ps5_biglock_unlock(&r->lock, lt); return ok;
++}
++int ps5_checked_commit(struct ps5_checked_region *r, size_t offset, size_t bytes)
++{
++   if (offset % LOGICAL || bytes % LOGICAL) return 0;
++   unsigned lt = ps5_biglock_wrlock(&r->lock);
++   int ok = r->backed && span(r, offset, bytes);
++   if (ok && bytes) {
++      size_t pages = bytes / LOGICAL, start = offset / LOGICAL;
++      unsigned char *old = malloc(pages);
++      if (!old) ok = 0;
++      else {
++         memcpy(old, r->rights + start, pages);
++         memset(r->rights + start, PS5_CHECKED_RW, pages);
++         size_t first = offset / NATIVE, last = (offset + bytes + NATIVE - 1) / NATIVE;
++         ok = apply(r, first, last);
++         if (!ok) {
++            memcpy(r->rights + start, old, pages);
++            if (!apply(r, first, last)) invalidate(r);
++         }
++         if (!r->poisoned) fast_refresh(r, start, start + pages);
++         free(old);
++      }
++   }
++   ps5_biglock_unlock(&r->lock, lt); return ok;
++}
++int ps5_checked_decommit(struct ps5_checked_region *r, size_t offset, size_t bytes)
++{
++   if (offset % LOGICAL || bytes % LOGICAL) return 0;
++   unsigned lt = ps5_biglock_wrlock(&r->lock);
++   int ok = r->backed && span(r, offset, bytes);
++   if (ok && bytes) {
++      fast_drop(r, offset / LOGICAL, offset / LOGICAL + bytes / LOGICAL, 0);
++      memset(r->rights + offset / LOGICAL, PS5_CHECKED_RESERVED, bytes / LOGICAL);
++      if (r->dirty) memset(r->dirty + offset / LOGICAL, 0, bytes / LOGICAL);
++      for (size_t u = offset / UNIT; u <= (offset + bytes - 1) / UNIT; u++) {
++         if (!r->backed[u]) continue;
++         size_t low = u * UNIT, high = low + UNIT;
++         int live = 0;
++         for (size_t p = low / LOGICAL; p < high / LOGICAL && p < r->pages; p++)
++            live |= r->rights[p] != PS5_CHECKED_RESERVED;
++         size_t begin = offset > low ? offset : low;
++         size_t end = offset + bytes < high ? offset + bytes : high;
++         int failure = ps5_vrange_decommit((void *)(r->base + (live ? begin : low)), live ? end - begin : UNIT);
++         if (failure) note_failure("ps5_vrange_decommit", r->base + (live ? begin : low), live ? end - begin : UNIT, failure);
++         if (!failure && !live) r->backed[u] = 0;
++         if (failure || !apply(r, low / NATIVE, high / NATIVE)) { invalidate(r); ok = 0; break; }
++      }
++   }
++   ps5_biglock_unlock(&r->lock, lt); return ok;
++}
++uint64_t ps5_checked_backed_bytes(struct ps5_checked_region *r)
++{
++   unsigned lt = ps5_biglock_rdlock(&r->lock);
++   uint64_t bytes = 0;
++   if (r->poisoned) bytes = UINT64_MAX;
++   else if (!r->backed) bytes = r->reserved;
++   else for (size_t u = 0; u < r->reserved / UNIT; u++) bytes += r->backed[u] ? UNIT : 0;
++   ps5_biglock_unlock(&r->lock, lt); return bytes;
++}
++int ps5_checked_poke(struct ps5_checked_region *r, size_t offset, const void *host, size_t bytes)
++{
++   unsigned lt = ps5_biglock_wrlock(&r->lock);
++   int ok = committed(r, offset, bytes) && external_buffer(r, host, bytes) && ensure_backing(r, offset, bytes);
++   if (ok && bytes) {
++      size_t first = offset / NATIVE, last = (offset + bytes + NATIVE - 1) / NATIVE;
++      ok = !sceKernelMprotect((void *)(r->base + first * NATIVE), (last - first) * NATIVE, 3);
++      if (ok) { memcpy((void *)(r->base + offset), host, bytes); dirty(r, offset, bytes); }
++      if (!apply(r, first, last)) { invalidate(r); ok = 0; }
++   }
++   ps5_biglock_unlock(&r->lock, lt); return ok;
++}
++int ps5_checked_peek(struct ps5_checked_region *r, size_t offset, void *host, size_t bytes)
++{
++   unsigned lt = ps5_biglock_wrlock(&r->lock);
++   int ok = committed(r, offset, bytes) && external_buffer(r, host, bytes);
++   unsigned char local[256];
++   unsigned char *stage = ok && bytes ? (bytes <= sizeof local ? local : malloc(bytes)) : NULL;
++   if (ok && bytes && !stage) ok = 0;
++   size_t done = 0;
++   while (ok && done < bytes) {
++      size_t at = offset + done, part = UNIT - at % UNIT; if (part > bytes - done) part = bytes - done;
++      if (r->backed && !r->backed[at / UNIT]) memset(stage + done, 0, part);
++      else {
++         size_t first = at / NATIVE, last = (at + part + NATIVE - 1) / NATIVE;
++         ok = !sceKernelMprotect((void *)(r->base + first * NATIVE), (last - first) * NATIVE, 3);
++         if (ok) memcpy(stage + done, (void *)(r->base + at), part);
++         if (!apply(r, first, last)) { invalidate(r); ok = 0; }
++      }
++      done += part;
++   }
++   if (ok && bytes) memcpy(host, stage, bytes);
++   if (stage != local) free(stage);
++   ps5_biglock_unlock(&r->lock, lt); return ok;
++}
++uint64_t ps5_checked_written(struct ps5_checked_region *r, size_t offset, size_t bytes,
++                              uint64_t *pages, size_t max, int reset)
++{
++   /* MKWBOOT-092: shared. The dirty bytes are set without the lock by the stores; a reset takes each one with an exchange,
++    * so two queries of the same range at once report every written page exactly once between them. */
++   unsigned lt = ps5_biglock_rdlock(&r->lock);
++   uint64_t count = 0;
++   if (!r->dirty || !span(r, offset, bytes) || max > SIZE_MAX / sizeof(*pages) ||
++       !external_buffer(r, pages, max * sizeof(*pages))) count = UINT64_MAX;
++   else if (bytes) for (size_t p = offset / LOGICAL; p <= (offset + bytes - 1) / LOGICAL && count < max; p++) {
++      if (!__atomic_load_n(&r->dirty[p], __ATOMIC_RELAXED)) continue;
++      if (reset && !__atomic_exchange_n(&r->dirty[p], 0, __ATOMIC_ACQ_REL)) continue;
++      pages[count++] = r->base + p * LOGICAL;
++   }
++   ps5_biglock_unlock(&r->lock, lt); return count;
++}
++
++/* MKWBOOT-057: who takes the registry/region locks exclusively, how often, how long it waited to get them and how long it held them. */
++struct ps5_biglock_stat ps5_biglock_tab[16];
++int ps5_biglock_report(char *buf, size_t size, double ticks_per_ns)
++{
++   int n = snprintf(buf, size, "biglock writers:");
++   for (unsigned i = 0; i < 16 && n < (int)size - 120; i++) {
++      struct ps5_biglock_stat s = ps5_biglock_tab[i];
++      if (!s.who || !s.n) continue;
++      n += snprintf(buf + n, size - (size_t)n, " [%#llx n %llu wait %.0f us hold %.0f us max %.0f us]", (unsigned long long)s.who, (unsigned long long)s.n,
++                    s.wait / ticks_per_ns / 1000.0, s.hold / ticks_per_ns / 1000.0, s.max / ticks_per_ns / 1000.0);
++      __atomic_store_n(&ps5_biglock_tab[i].n, 0, __ATOMIC_RELAXED); __atomic_store_n(&ps5_biglock_tab[i].wait, 0, __ATOMIC_RELAXED);
++      __atomic_store_n(&ps5_biglock_tab[i].hold, 0, __ATOMIC_RELAXED); __atomic_store_n(&ps5_biglock_tab[i].max, 0, __ATOMIC_RELAXED);
++   }
++   return n;
++}
+diff --git a/platform/src/demand.c b/platform/src/demand.c
+new file mode 100644
+index 0000000..8b85e73
+--- /dev/null
++++ b/platform/src/demand.c
+@@ -0,0 +1,367 @@
++/* Experimental demand-backed CPU regions. SPDX-License-Identifier: GPL-3.0-or-later */
++#define _GNU_SOURCE 1
++#include "ps5platform/demand.h"
++#include "ps5platform/kernel.h"
++#include "ps5platform/shm.h"
++#include "placement.h"
++#include <errno.h>
++#include <pthread.h>
++#include <signal.h>
++#include <stdatomic.h>
++#include <stdlib.h>
++#include <stdio.h>
++#include <time.h>
++#include <ucontext.h>
++#ifdef __PROSPERO__
++#include "ps5platform/context.h"
++#endif
++
++#define UNIT ((size_t)0x10000)
++/* Keep owned demand windows in the documented high reservation area. MKW's
++ * fw9 failures were at 0x810e40000/0x820e50000, after the low view area filled.
++ * ReserveVirtualRange success there did not imply MAP_FIXED was accepted. */
++#define DEMAND_AREA ((uintptr_t)0x1000000000ull)
++static int reserve_window(size_t bytes, void **base)
++{
++   int result = ps5_vrange_reserve(bytes, (void *)DEMAND_AREA, UNIT, base);
++   if (!result && (uintptr_t)*base < DEMAND_AREA) {
++      ps5_vrange_release(*base, bytes);
++      *base = NULL;
++      return EINVAL;
++   }
++   return result;
++}
++
++enum { EMPTY, MAPPING, READY, FAILED };
++struct demand_unit { atomic_int state; int64_t physical; int stage, result; void *relocated; };
++struct ps5_demand_region {
++   _Atomic(struct ps5_demand_region *) next;
++   void *base, *data, *staging;
++   size_t size, reservation;
++   struct demand_unit *units;
++   atomic_int readonly;
++};
++static _Atomic(struct ps5_demand_region *) regions;
++static atomic_uint readers;
++static atomic_uint_fast64_t backed;
++static pthread_mutex_t registry_lock = PTHREAD_MUTEX_INITIALIZER;
++static ps5_demand_dispatcher external_dispatcher;
++_Static_assert(ATOMIC_POINTER_LOCK_FREE == 2 && ATOMIC_INT_LOCK_FREE == 2 &&
++               ATOMIC_LONG_LOCK_FREE == 2 && ATOMIC_LLONG_LOCK_FREE == 2,
++               "fault-side atomics must be lock-free");
++
++static void pause_cpu(void) { __asm__ volatile("pause"); }
++
++static int back_unit(struct ps5_demand_region *region, size_t index)
++{
++   struct demand_unit *unit = &region->units[index];
++   int expected = EMPTY;
++   if (!atomic_compare_exchange_strong_explicit(&unit->state, &expected, MAPPING,
++                                                memory_order_acq_rel, memory_order_acquire)) {
++      unsigned spins = 0;
++      while (expected == MAPPING) {
++         if (spins++ < 64) pause_cpu();
++         else {
++            // A higher-priority waiter must not spin out the thread mapping
++            // this unit on the same CPU. No pthread/allocator lock is taken.
++            const struct timespec delay = {0, 50000};
++            nanosleep(&delay, NULL);
++         }
++         expected = atomic_load_explicit(&unit->state, memory_order_acquire);
++      }
++      return expected == READY;
++   }
++   int64_t physical = -1;
++   unit->stage = PS5_DEMAND_ALLOCATE;
++   int result = sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), UNIT, UNIT,
++                                               PS5_KERNEL_DIRECT_TYPE_CPU, &physical);
++   if (result != 0) {
++      unit->result = result;
++      atomic_store_explicit(&unit->state, FAILED, memory_order_release);
++      return 0;
++   }
++   unit->physical = physical;
++   atomic_fetch_add_explicit(&backed, UNIT, memory_order_relaxed);
++   void *stage = (char *)region->staging + index * UNIT;
++   void *mapped = stage;
++   unit->stage = PS5_DEMAND_MAP_STAGING;
++   result = sceKernelMapDirectMemory(&mapped, UNIT,
++                                     PS5_KERNEL_PROT_CPU_READ | PS5_KERNEL_PROT_CPU_WRITE,
++                                     PS5_KERNEL_MAP_FIXED, physical, 0x4000);
++   if (result == 0 && mapped != stage) {
++      sceKernelMunmap(mapped, UNIT);
++      result = -1;
++   }
++   // Some title mappings refuse MAP_FIXED into this reserved alias (MKW on
++   // firmware 9: 0x80020016). The private alias has no address contract: use the
++   // platform's normal placement, outside the GPU window. Never release the
++   // reservation or retry a public data mapping at another address.
++   if ((uint32_t)result == 0x80020016u) {
++      void *alternate = NULL;
++      result = ps5p_map_placed(physical, UNIT, 0,
++          PS5_KERNEL_PROT_CPU_READ | PS5_KERNEL_PROT_CPU_WRITE, -1, &alternate);
++      if (!result) { unit->relocated = alternate; stage = alternate; }
++   }
++   if (result == 0) {
++      // Reused direct memory is dirty. Zero via a private alias before making
++      // the public view accessible, including to threads that would not fault.
++      // Volatile stores keep this independent of an out-of-line libc memset.
++      volatile uint64_t *words = stage;
++      for (size_t i = 0; i < UNIT / sizeof(*words); i++) words[i] = 0;
++      void *target = (char *)region->data + index * UNIT;
++      mapped = target;
++      unit->stage = PS5_DEMAND_MAP_DATA;
++      result = sceKernelMapDirectMemory(&mapped, UNIT,
++                                        atomic_load_explicit(&region->readonly, memory_order_acquire) ?
++                                           PS5_KERNEL_PROT_CPU_READ : PS5_KERNEL_PROT_CPU_READ | PS5_KERNEL_PROT_CPU_WRITE,
++                                        PS5_KERNEL_MAP_FIXED, physical, 0x4000);
++      if (result == 0 && mapped != target) {
++         sceKernelMunmap(mapped, UNIT);
++         result = -1;
++      }
++   }
++   // Keep the private alias mapped until destroy, avoiding a temporary hole
++   // that another allocator could take. It costs virtual space, not more RAM.
++   unit->result = result;
++   atomic_store_explicit(&unit->state, result == 0 ? READY : FAILED, memory_order_release);
++   return result == 0;
++}
++
++static int demand_fault_access(uintptr_t address, int write)
++{
++   // Sequential consistency makes unlink + waiting for readers a reclamation
++   // barrier. No region metadata is freed while a handler could still use it.
++   atomic_fetch_add_explicit(&readers, 1, memory_order_seq_cst);
++   int handled = 0;
++   for (struct ps5_demand_region *region = atomic_load_explicit(&regions, memory_order_seq_cst);
++        region; region = atomic_load_explicit(&region->next, memory_order_seq_cst)) {
++      uintptr_t low = (uintptr_t)region->data;
++      if (address >= low && address - low < region->size) {
++         if (!write || !atomic_load_explicit(&region->readonly, memory_order_acquire))
++            handled = back_unit(region, (address - low) / UNIT);
++         break;
++      }
++   }
++   atomic_fetch_sub_explicit(&readers, 1, memory_order_seq_cst);
++   return handled;
++}
++int ps5_demand_fault(uintptr_t address) { return demand_fault_access(address, 0); }
++int ps5_demand_prepare(struct ps5_demand_region *region, size_t offset, size_t bytes,
++                       struct ps5_demand_failure *failure)
++{
++   if (failure) *failure = (struct ps5_demand_failure){0};
++   if (!region || offset > region->size || bytes > region->size - offset) {
++      if (failure) failure->result = EINVAL;
++      return -1;
++   }
++   if (!bytes) return 0;
++   size_t last = (offset + bytes - 1) / UNIT;
++   for (size_t i = offset / UNIT; i <= last; i++) {
++      if (back_unit(region, i)) continue;
++      // back_unit acquires FAILED from another mapper or publishes its own
++      // failure: the phase/result are stable until the owner destroys region.
++      struct demand_unit *u = &region->units[i];
++      if (failure) *failure = (struct ps5_demand_failure){u->stage, u->result,
++          (uintptr_t)region->data + i * UNIT, u->relocated ? (uintptr_t)u->relocated : (uintptr_t)region->staging + i * UNIT, u->physical};
++      return -1;
++   }
++   return 0;
++}
++
++
++static void demand_signal(int sig, siginfo_t *info, void *context)
++{
++   int saved_errno = errno;
++   ucontext_t *uc = context;
++#ifdef __PROSPERO__
++   uint64_t error = uc->uc_mcontext.mc_err;
++#else
++   uint64_t error = (uint64_t)uc->uc_mcontext.gregs[REG_ERR];
++#endif
++   // Demand stacks are CPU read/write, never executable. An NX violation must
++   // remain fatal even if a racing reader has already backed this unit.
++   if (info->si_code > 0 && !(error & 16u) && demand_fault_access((uintptr_t)info->si_addr, (error & 2u) != 0)) {
++      errno = saved_errno;
++      return;
++   }
++   // This handler is installed only over SIG_DFL. Unowned faults, guards and
++   // allocation failures retain that fatal disposition, rather than retrying.
++   struct sigaction action = {.sa_handler = SIG_DFL};
++   sigemptyset(&action.sa_mask);
++   if (sigaction(sig, &action, NULL) || raise(sig)) __builtin_trap();
++   errno = saved_errno;
++}
++
++static int install_locked(void)
++{
++   struct sigaction old;
++   if (sigaction(SIGSEGV, NULL, &old)) return -1;
++   if ((old.sa_flags & SA_SIGINFO) && old.sa_sigaction == demand_signal) return 0;
++   if ((old.sa_flags & SA_SIGINFO) && external_dispatcher && old.sa_sigaction == external_dispatcher) return 0;
++   if (old.sa_handler != SIG_DFL) { errno = EBUSY; return -1; }
++   struct sigaction action = {.sa_sigaction = demand_signal, .sa_flags = SA_SIGINFO | SA_ONSTACK};
++   sigemptyset(&action.sa_mask);
++   if (sigaction(SIGSEGV, &action, NULL)) return -1;
++   return 0;
++}
++
++int ps5_demand_bind_dispatcher(ps5_demand_dispatcher dispatcher)
++{
++   pthread_mutex_lock(&registry_lock);
++   struct sigaction current;
++   int result = 0;
++   if (dispatcher && (sigaction(SIGSEGV, NULL, &current) ||
++       !(current.sa_flags & SA_SIGINFO) || current.sa_sigaction != dispatcher)) {
++      errno = EINVAL; result = -1;
++   } else external_dispatcher = dispatcher;
++   pthread_mutex_unlock(&registry_lock);
++   return result;
++}
++
++int ps5_demand_access(uintptr_t address, unsigned access)
++{
++   if (access != PS5_DEMAND_READ && access != PS5_DEMAND_WRITE) return 0;
++   return demand_fault_access(address, access == PS5_DEMAND_WRITE);
++}
++
++int ps5_demand_create(size_t bytes, size_t guard, struct ps5_demand_region **out)
++{
++   if (!out) return -1;
++   *out = NULL;
++   if (!bytes || bytes > SIZE_MAX - UNIT || guard > SIZE_MAX - UNIT) return -1;
++   bytes = (bytes + UNIT - 1) & ~(UNIT - 1);
++   guard = (guard + UNIT - 1) & ~(UNIT - 1);
++   if (guard > SIZE_MAX - bytes || bytes + guard > SIZE_MAX - bytes) return -1;
++   struct ps5_demand_region *region = calloc(1, sizeof(*region));
++   if (!region) return -1;
++   atomic_init(&region->next, NULL);
++   atomic_init(&region->readonly, 0);
++   region->size = bytes;
++   region->reservation = bytes + guard;
++   region->units = calloc(bytes / UNIT, sizeof(*region->units));
++   if (!region->units) { free(region); return -1; }
++   for (size_t i = 0; i < bytes / UNIT; i++) {
++      atomic_init(&region->units[i].state, EMPTY);
++      region->units[i].physical = -1;
++   }
++   const char *stage = "reserve data";
++   int result = reserve_window(region->reservation, &region->base);
++   if (result) goto fail;
++   region->data = (char *)region->base + guard;
++   stage = "reserve staging";
++   result = reserve_window(bytes, &region->staging);
++   if (result) goto fail;
++   stage = "signal dispatcher";
++   pthread_mutex_lock(&registry_lock);
++   result = install_locked();
++   if (result == 0) {
++      atomic_store_explicit(&region->next, atomic_load_explicit(&regions, memory_order_seq_cst), memory_order_seq_cst);
++      atomic_store_explicit(&regions, region, memory_order_seq_cst);
++   }
++   pthread_mutex_unlock(&registry_lock);
++   if (result != 0) goto fail;
++   *out = region;
++   return 0;
++fail:
++   { int saved = errno;
++     fprintf(stderr, "[ps5-demand] create %zu bytes failed at %s: result %d (%#x), errno %d\n",
++             bytes, stage, result, (unsigned)result, saved);
++   if (region->staging) ps5_vrange_release(region->staging, bytes);
++   if (region->base) ps5_vrange_release(region->base, region->reservation);
++   free(region->units); free(region);
++   errno = saved; }
++   return -1;
++}
++
++void *ps5_demand_data(const struct ps5_demand_region *region) { return region->data; }
++size_t ps5_demand_size(const struct ps5_demand_region *region) { return region->size; }
++size_t ps5_demand_reserved(const struct ps5_demand_region *region) { return region->reservation + region->size; }
++uint64_t ps5_demand_backed_bytes(void) { return atomic_load_explicit(&backed, memory_order_relaxed); }
++int ps5_demand_seal_readonly(struct ps5_demand_region *region)
++{
++   atomic_store_explicit(&region->readonly, 1, memory_order_release);
++   for (size_t i = 0; i < region->size / UNIT; i++) {
++      int state;
++      while ((state = atomic_load_explicit(&region->units[i].state, memory_order_acquire)) == MAPPING) {
++         const struct timespec delay = {0, 50000}; nanosleep(&delay, NULL);
++      }
++      if (state == FAILED) return -1;
++      if (state == READY && sceKernelMprotect((char *)region->data + i * UNIT, UNIT, PS5_KERNEL_PROT_CPU_READ)) return -1;
++   }
++   return 0;
++}
++
++void ps5_demand_destroy(struct ps5_demand_region *region)
++{
++   if (!region) return;
++   pthread_mutex_lock(&registry_lock);
++   _Atomic(struct ps5_demand_region *) *link = &regions;
++   while (atomic_load_explicit(link, memory_order_seq_cst) != region) {
++      struct ps5_demand_region *entry = atomic_load_explicit(link, memory_order_seq_cst);
++      if (!entry) __builtin_trap();
++      link = &entry->next;
++   }
++   atomic_store_explicit(link, atomic_load_explicit(&region->next, memory_order_seq_cst), memory_order_seq_cst);
++   while (atomic_load_explicit(&readers, memory_order_seq_cst)) {
++      const struct timespec delay = {0, 50000};
++      nanosleep(&delay, NULL);
++   }
++   if (ps5_vrange_release(region->base, region->reservation) ||
++       ps5_vrange_release(region->staging, region->size)) __builtin_trap();
++   for (size_t i = 0; i < region->size / UNIT; i++) {
++      if (region->units[i].relocated && sceKernelMunmap(region->units[i].relocated, UNIT)) __builtin_trap();
++      if (region->units[i].physical < 0) continue;
++      if (sceKernelReleaseDirectMemory(region->units[i].physical, UNIT)) __builtin_trap();
++      atomic_fetch_sub_explicit(&backed, UNIT, memory_order_relaxed);
++   }
++   free(region->units); free(region);
++   pthread_mutex_unlock(&registry_lock);
++}
++
++static _Thread_local struct {
++   unsigned refs;
++   stack_t old;
++   void *base;
++} thread_stack;
++
++int ps5_demand_thread_attach(void)
++{
++   if (thread_stack.refs) { thread_stack.refs++; return 0; }
++   if (sigaltstack(NULL, &thread_stack.old)) return -1;
++   if (thread_stack.old.ss_flags & SS_DISABLE) {
++      void *base = NULL;
++      if (reserve_window(2 * UNIT, &base)) return -1;
++      if (ps5_vrange_commit((char *)base + UNIT, UNIT, PS5_SHM_READ | PS5_SHM_WRITE)) {
++         ps5_vrange_release(base, 2 * UNIT); return -1;
++      }
++      stack_t stack = {.ss_sp = (char *)base + UNIT, .ss_size = UNIT};
++      if (sigaltstack(&stack, NULL)) { ps5_vrange_release(base, 2 * UNIT); return -1; }
++      thread_stack.base = base;
++   }
++   thread_stack.refs = 1;
++   return 0;
++}
++void ps5_demand_thread_detach(void)
++{
++   if (!thread_stack.refs) __builtin_trap();
++   if (--thread_stack.refs) return;
++   if (thread_stack.base) {
++      if (sigaltstack(&thread_stack.old, NULL) || ps5_vrange_release(thread_stack.base, 2 * UNIT)) __builtin_trap();
++      thread_stack.base = NULL;
++   }
++}
++
++int ps5_demand_thread_retire(void **token)
++{
++   if (!token || thread_stack.refs != 1) return -1;
++   *token = thread_stack.base;
++   thread_stack.refs = 0;
++   thread_stack.base = NULL;
++   // Leave sigaltstack installed: pthread's TLS destructors still use the
++   // demand-backed worker stack after its callback returned.
++   return 0;
++}
++void ps5_demand_thread_release(void *token)
++{
++   if (token && ps5_vrange_release(token, 2 * UNIT)) __builtin_trap();
++}
+diff --git a/platform/tests/demand_host_kernel.c b/platform/tests/demand_host_kernel.c
+new file mode 100644
+index 0000000..7436c4a
+--- /dev/null
++++ b/platform/tests/demand_host_kernel.c
+@@ -0,0 +1,128 @@
++/* Linux model for demand.c; not PS5 kernel evidence. SPDX-License-Identifier: GPL-3.0-or-later */
++#define _GNU_SOURCE
++#include "ps5platform/kernel.h"
++#include "ps5platform/shm.h"
++#include <stdatomic.h>
++#include <stdint.h>
++#include <string.h>
++#include <sys/mman.h>
++#include <sys/syscall.h>
++#include <unistd.h>
++
++atomic_int demand_test_live_allocs, demand_test_fail_alloc, demand_test_map_calls, demand_test_fail_map;
++atomic_int demand_test_fail_commit;
++atomic_int demand_test_low_hint, demand_test_force_low_return;
++atomic_int demand_test_fixed_reject, demand_test_relocate_fail, demand_test_relocated;
++static atomic_uintptr_t relocated_address;
++atomic_int checked_test_commit_calls, checked_test_fail_commit_at;
++atomic_int checked_test_protect_calls, checked_test_fail_protect, checked_test_fail_protect_always;
++atomic_int checked_test_fail_decommit;
++
++int ps5_vrange_reserve(size_t bytes, void *hint, size_t alignment, void **base)
++{
++   if ((uintptr_t)hint != (uintptr_t)0x1000000000ull) atomic_store(&demand_test_low_hint, 1);
++   if (!alignment) alignment = 0x10000;
++   int flags = MAP_ANONYMOUS | MAP_PRIVATE;
++   if (atomic_load(&demand_test_force_low_return)) flags |= MAP_32BIT;
++   void *raw = mmap(NULL, bytes + alignment, PROT_NONE, flags, -1, 0);
++   if (raw == MAP_FAILED) return -1;
++   uintptr_t aligned = ((uintptr_t)raw + alignment - 1) & ~(alignment - 1);
++   size_t prefix = aligned - (uintptr_t)raw;
++   if (prefix) munmap(raw, prefix);
++   size_t suffix = alignment - prefix;
++   if (suffix) munmap((void *)(aligned + bytes), suffix);
++   *base = (void *)aligned;
++   return 0;
++}
++int ps5_vrange_commit(void *address, size_t bytes, int protection)
++{
++   (void)protection;
++   int call = atomic_fetch_add(&checked_test_commit_calls, 1) + 1;
++   if (atomic_load(&demand_test_fail_commit) || call == atomic_load(&checked_test_fail_commit_at)) return -1;
++   uintptr_t low = (uintptr_t)address & ~(uintptr_t)0x3fff;
++   uintptr_t high = ((uintptr_t)address + bytes + 0x3fff) & ~(uintptr_t)0x3fff;
++   return mprotect((void *)low, high - low, PROT_READ | PROT_WRITE);
++}
++int ps5_vrange_decommit(void *address, size_t bytes)
++{
++   if (atomic_load(&checked_test_fail_decommit)) return -1;
++   uintptr_t low = (uintptr_t)address & ~(uintptr_t)0x3fff;
++   uintptr_t high = ((uintptr_t)address + bytes + 0x3fff) & ~(uintptr_t)0x3fff;
++   if (mprotect((void *)low, high - low, PROT_READ | PROT_WRITE)) return -1;
++   if (!((uintptr_t)address % 0x10000) && !(bytes % 0x10000)) {
++      if (madvise(address, bytes, MADV_DONTNEED)) return -1;
++      return mprotect(address, bytes, PROT_NONE);
++   }
++   memset(address, 0, bytes);
++   return 0;
++}
++int ps5_vrange_reserve_at(void *address, size_t bytes)
++{
++   void *mapped = mmap(address, bytes, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
++   if (mapped != address && mapped != MAP_FAILED) munmap(mapped, bytes);
++   return mapped == address ? 0 : -1;
++}
++int32_t sceKernelMprotect(const void *address, size_t bytes, int protection)
++{
++   int call = atomic_fetch_add(&checked_test_protect_calls, 1) + 1;
++   if (atomic_load(&checked_test_fail_protect_always) || call == atomic_load(&checked_test_fail_protect)) return -1;
++   return mprotect((void *)address, bytes, protection);
++}
++int ps5_vrange_release(void *base, size_t bytes) { return munmap(base, bytes); }
++int64_t sceKernelGetDirectMemorySize(void) { return INT64_MAX; }
++int32_t sceKernelAllocateDirectMemory(int64_t start, int64_t end, size_t length,
++                                     size_t alignment, int type, int64_t *physical)
++{
++   (void)start; (void)end; (void)alignment; (void)type;
++   if (atomic_load(&demand_test_fail_alloc)) return -1;
++   int fd = (int)syscall(SYS_memfd_create, "demand-test", 1);
++   if (fd < 0) return -1;
++   if (ftruncate(fd, (off_t)length)) { close(fd); return -1; }
++   void *dirty = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++   if (dirty == MAP_FAILED) { close(fd); return -1; }
++   memset(dirty, 0xa5, length); // New backing is deliberately dirty, as on the console.
++   munmap(dirty, length);
++   *physical = fd;
++   atomic_fetch_add(&demand_test_live_allocs, 1);
++   return 0;
++}
++int32_t sceKernelMapDirectMemory(void **address, size_t length, int protection, int flags,
++                                int64_t physical, size_t alignment)
++{
++   (void)flags; (void)alignment;
++   int call = atomic_fetch_add(&demand_test_map_calls, 1) + 1;
++   if (call == atomic_load(&demand_test_fail_map)) return -1;
++   if (atomic_load(&demand_test_fixed_reject) && call == 1) return (int32_t)0x80020016u;
++   void *mapped = mmap(*address, length, protection, MAP_SHARED | MAP_FIXED, (int)physical, 0);
++   if (mapped == MAP_FAILED) return -1;
++   *address = mapped;
++   return 0;
++}
++int32_t sceKernelMunmap(void *address, size_t bytes) {
++   int result = munmap(address, bytes);
++   uintptr_t expected = (uintptr_t)address;
++   if (!result && atomic_compare_exchange_strong(&relocated_address, &expected, 0))
++      atomic_fetch_sub(&demand_test_relocated, 1);
++   return result;
++}
++int32_t sceKernelReleaseDirectMemory(int64_t physical, size_t bytes)
++{
++   (void)bytes;
++   int result = close((int)physical);
++   if (!result) atomic_fetch_sub(&demand_test_live_allocs, 1);
++   return result;
++}
++
++/* Model the placement helper's result, not a guessed PS5 VA policy. */
++int ps5p_map_placed(int64_t physical, size_t bytes, uintptr_t hint, int protection,
++                    int no_place, void **address)
++{
++   (void)hint; (void)no_place;
++   if (atomic_load(&demand_test_relocate_fail)) return -1;
++   void *p = mmap(NULL, bytes, protection, MAP_SHARED, (int)physical, 0);
++   if (p == MAP_FAILED) return -1;
++   *address = p;
++   atomic_store(&relocated_address, (uintptr_t)p);
++   atomic_fetch_add(&demand_test_relocated, 1);
++   return 0;
++}
+diff --git a/platform/tests/test_checked_atomics.c b/platform/tests/test_checked_atomics.c
+new file mode 100644
+index 0000000..c332486
+--- /dev/null
++++ b/platform/tests/test_checked_atomics.c
+@@ -0,0 +1,95 @@
++/* Shared-lock data stores and atomics: no lost updates, no tearing, protection changes still exclusive.
++ * SPDX-License-Identifier: GPL-3.0-or-later */
++#define _GNU_SOURCE
++#include "ps5platform/checked_region.h"
++#include <assert.h>
++#include <pthread.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++#define THREADS 6
++#define ROUNDS 40000
++static struct ps5_checked_region *r;
++/* 4-byte and 8-byte CAS increments of shared counters from every thread: the sum must be exact. */
++static void *cas_worker(void *arg)
++{
++   (void)arg;
++   for (int i = 0; i < ROUNDS; i++) {
++      uint32_t e = 0, d; int ex = 0;
++      assert(ps5_checked_atomic_load(r, 0x100, &e, 4));
++      do { d = e + 1; assert(ps5_checked_atomic_cas(r, 0x100, &e, &d, 4, &ex)); } while (!ex);
++      uint64_t e8 = 0, d8;
++      assert(ps5_checked_atomic_load(r, 0x108, &e8, 8));
++      do { d8 = e8 + 3; assert(ps5_checked_atomic_cas(r, 0x108, &e8, &d8, 8, &ex)); } while (!ex);
++   }
++   return NULL;
++}
++/* Aligned 8-byte plain stores race with 8-byte atomic loads: every value read was one a store wrote. */
++static void *store_worker(void *arg)
++{
++   uint64_t tag = (uint64_t)(uintptr_t)arg * 0x0101010101010101ull;
++   for (int i = 0; i < ROUNDS; i++) assert(ps5_checked_write(r, 0x200, &tag, 8));
++   return NULL;
++}
++static void *load_worker(void *arg)
++{
++   (void)arg;
++   for (int i = 0; i < ROUNDS; i++) {
++      uint64_t v = 0;
++      assert(ps5_checked_atomic_load(r, 0x200, &v, 8));
++      uint8_t b = (uint8_t)v;
++      assert(v == b * 0x0101010101010101ull);   /* never a mix of two stores */
++      assert(ps5_checked_read(r, 0x200, &v, 8));
++      b = (uint8_t)v;
++      assert(v == b * 0x0101010101010101ull);
++   }
++   return NULL;
++}
++/* Protection flips while others access: accesses either succeed or are refused, never crash or hang. */
++static void *flip_worker(void *arg)
++{
++   (void)arg;
++   for (int i = 0; i < 2000; i++) {
++      assert(ps5_checked_protect(r, 0x4000, 0x1000, i & 1 ? PS5_CHECKED_RW : PS5_CHECKED_READ));
++   }
++   assert(ps5_checked_protect(r, 0x4000, 0x1000, PS5_CHECKED_RW));
++   return NULL;
++}
++static void *probe_worker(void *arg)
++{
++   (void)arg; uint32_t v = 1;
++   for (int i = 0; i < 20000; i++) { (void)ps5_checked_write(r, 0x4000, &v, 4); assert(ps5_checked_read(r, 0x4000, &v, 4)); }
++   return NULL;
++}
++int main(void)
++{
++   const uintptr_t base = 0x7000000000ull;
++   /* Sparse: the first store into each 64 KiB unit takes the exclusive backing path, later ones the shared path. */
++   assert(ps5_checked_create_sparse(base, 0x40000, 1, &r));
++   assert(ps5_checked_commit(r, 0, 0x40000));
++   uint32_t zero = 0; assert(ps5_checked_atomic_load(r, 0x100, &zero, 4) && zero == 0);   /* unbacked reads zero */
++   pthread_t t[THREADS * 2];
++   for (int i = 0; i < THREADS; i++) assert(!pthread_create(&t[i], NULL, cas_worker, NULL));
++   for (int i = 0; i < THREADS; i++) assert(!pthread_join(t[i], NULL));
++   uint32_t c4 = 0; uint64_t c8 = 0;
++   assert(ps5_checked_atomic_load(r, 0x100, &c4, 4) && ps5_checked_atomic_load(r, 0x108, &c8, 8));
++   assert(c4 == (uint32_t)THREADS * ROUNDS && c8 == (uint64_t)THREADS * ROUNDS * 3);
++   int n = 0;
++   for (int i = 0; i < 3; i++) assert(!pthread_create(&t[n++], NULL, store_worker, (void *)(intptr_t)(i + 1)));
++   for (int i = 0; i < 3; i++) assert(!pthread_create(&t[n++], NULL, load_worker, NULL));
++   assert(!pthread_create(&t[n++], NULL, flip_worker, NULL));
++   assert(!pthread_create(&t[n++], NULL, probe_worker, NULL));
++   for (int i = 0; i < n; i++) assert(!pthread_join(t[i], NULL));
++   /* Dirty tracking survives the shared path. */
++   uint64_t pages[16];
++   assert(ps5_checked_written(r, 0, 0x40000, pages, 16, 1) != UINT64_MAX);
++   uint32_t v = 7; assert(ps5_checked_write(r, 0x30000, &v, 4));
++   assert(ps5_checked_written(r, 0, 0x40000, pages, 16, 1) == 1 && pages[0] == base + 0x30000);
++   /* 16-byte atomics still work (exclusive path) beside 8-byte ones. */
++   unsigned char a[16] = {1, 2, 3}, b[16] = {0}; int ex = 0;
++   assert(ps5_checked_atomic_store(r, 0x300, a, 16) && ps5_checked_atomic_load(r, 0x300, b, 16) && !memcmp(a, b, 16));
++   unsigned char want[16] = {9}; assert(ps5_checked_atomic_cas(r, 0x300, a, want, 16, &ex) && ex);
++   ps5_checked_destroy(r);
++   puts("PASS: exact CAS counters, untorn 8-byte stores, concurrent protection, dirty pages, 16-byte atomics");
++   return 0;
++}
+diff --git a/platform/tests/test_checked_region.c b/platform/tests/test_checked_region.c
+new file mode 100644
+index 0000000..db8f6f0
+--- /dev/null
++++ b/platform/tests/test_checked_region.c
+@@ -0,0 +1,124 @@
++/* Checked 4 KiB policy over 16 KiB native protection. SPDX-License-Identifier: GPL-3.0-or-later */
++#define _GNU_SOURCE
++#include "ps5platform/checked_region.h"
++#include <assert.h>
++#include <pthread.h>
++#include <signal.h>
++#include <stdatomic.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++#include <sys/wait.h>
++#include <unistd.h>
++extern atomic_int checked_test_protect_calls, checked_test_fail_protect, checked_test_fail_protect_always;
++static struct ps5_checked_region *shared;
++static void *writer(void *arg)
++{
++   unsigned char bytes[16]; memset(bytes, (int)(intptr_t)arg, sizeof bytes);
++   for (int i = 0; i < 10000; i++) ps5_checked_write(shared, 0, bytes, sizeof bytes);
++   return NULL;
++}
++static void *reader(void *arg)
++{
++   (void)arg; unsigned char bytes[16];
++   for (int i = 0; i < 10000; i++) {
++      assert(ps5_checked_read(shared, 0, bytes, sizeof bytes));
++      for (int j = 1; j < 16; j++) assert(bytes[j] == bytes[0]);
++   }
++   return NULL;
++}
++int main(void)
++{
++   const uintptr_t base = 0x7000000000ull;
++   struct ps5_checked_region *r = NULL, *other = NULL;
++   assert(!ps5_checked_create(base + 0x1000, 0x10000, &r));
++   assert(!ps5_checked_create(base, 0, &r));
++   assert(!ps5_checked_create(base, 1, &r));
++   assert(ps5_checked_create(base, 0x20000, &r));
++   assert(ps5_checked_address(r) == base);
++   assert(!ps5_checked_create(base, 0x10000, &other) && !other);
++   unsigned char original[0x20000], readback[0x20000];
++   memset(original, 0x11, sizeof original);
++   assert(ps5_checked_write(r, 0, original, sizeof original));
++   for (size_t width = 1; width <= 16; width *= 2) {
++      unsigned char value[16], expected[16], desired[16], out[16];
++      memset(value, 0x55, 16); memset(desired, 0xaa, 16);
++      assert(ps5_checked_atomic_store(r, 0x8000, value, width));
++      assert(ps5_checked_atomic_load(r, 0x8000, out, width) && !memcmp(out, value, width));
++      memcpy(expected, value, 16); int exchanged = -1;
++      assert(ps5_checked_atomic_cas(r, 0x8000, expected, desired, width, &exchanged) && exchanged == 1);
++      assert(ps5_checked_atomic_cas(r, 0x8000, expected, value, width, &exchanged) && exchanged == 0);
++      assert(!memcmp(expected, desired, width));
++      assert(!ps5_checked_atomic_load(r, SIZE_MAX, out, width));
++      if (width > 1) assert(!ps5_checked_atomic_store(r, 0x8001, value, width));
++   }
++   assert(ps5_checked_write(r, 0, original, sizeof original));
++   assert(ps5_checked_protect(r, 0, 0x2000, PS5_CHECKED_READ));
++   uint64_t expected_atomic = 0, desired_atomic = 1;
++   int exchanged_atomic = 17;
++   assert(!ps5_checked_atomic_cas(r, 0, &expected_atomic, &desired_atomic, 8, &exchanged_atomic));
++   assert(expected_atomic == 0 && exchanged_atomic == 17);
++   assert(!ps5_checked_atomic_store(r, 0, &desired_atomic, 8));
++   assert(!ps5_checked_atomic_load(r, 0x2000, (void *)(base + 0x9000), 8));
++   assert(!ps5_checked_atomic_load(r, 0x2000, &expected_atomic, 3));
++   assert(ps5_checked_mixed_pages(r) == 1);
++   assert(ps5_checked_access(r, 0x1fff) == PS5_CHECKED_READ);
++   assert(ps5_checked_access(r, 0x2000) == PS5_CHECKED_RW);
++   unsigned char replacement[2] = {0x22, 0x33};
++   assert(!ps5_checked_write(r, 0x1fff, replacement, 2));
++   assert(ps5_checked_read(r, 0x1fff, readback, 2));
++   assert(readback[0] == 0x11 && readback[1] == 0x11);
++   assert(ps5_checked_write(r, 0x2000, replacement, 2));
++   assert(!ps5_checked_write(r, 0x1ffff, replacement, 2));
++   assert(!ps5_checked_read(r, SIZE_MAX, readback, 16));
++   assert(!ps5_checked_write(r, 0, NULL, 1));
++   assert(!ps5_checked_read(r, 0, (void *)(base + 0x3000), 1));
++   assert(ps5_checked_read(r, 0x20000, NULL, 0));
++   assert(!ps5_checked_read(r, 0x20001, NULL, 0));
++   assert(!ps5_checked_protect(r, 1, 0x1000, PS5_CHECKED_READ));
++   assert(!ps5_checked_protect(r, 0, 0x1000, 2));
++   assert(ps5_checked_protect(r, 0x3000, 0x1000, PS5_CHECKED_NONE));
++   assert(!ps5_checked_read(r, 0x2fff, readback, 2));
++   assert(!ps5_checked_write(r, 0x2fff, replacement, 2));
++   assert(ps5_checked_protect(r, 0x4000, 0x4000, PS5_CHECKED_READ));
++   pid_t child = fork(); assert(child >= 0);
++   if (!child) { *(volatile unsigned char *)(base + 0x4000) = 1; _exit(7); }
++   int status;
++   assert(waitpid(child, &status, 0) == child);
++   assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV);
++   assert(ps5_checked_protect(r, 0, 0x20000, PS5_CHECKED_RW));
++   atomic_store(&checked_test_protect_calls, 0);
++   /* MKWBOOT-063: apply() protects a uniform run with one call, so the range fails as a whole on its first call and the
++    * second call (the rollback) must restore it. */
++   atomic_store(&checked_test_fail_protect, 1);
++   assert(!ps5_checked_protect(r, 0, 0x8000, PS5_CHECKED_READ));
++   assert(ps5_checked_access(r, 0) == PS5_CHECKED_RW);
++   assert(ps5_checked_access(r, 0x4000) == PS5_CHECKED_RW);
++   assert(ps5_checked_write(r, 0, original, sizeof original));
++   atomic_store(&checked_test_fail_protect, 0);
++
++   shared = r;
++   pthread_t threads[3];
++   assert(!pthread_create(&threads[0], NULL, writer, (void *)0x22));
++   assert(!pthread_create(&threads[1], NULL, writer, (void *)0x33));
++   assert(!pthread_create(&threads[2], NULL, reader, NULL));
++   for (int i = 0; i < 1000; i++)
++      assert(ps5_checked_protect(r, 0, 0x1000, i & 1 ? PS5_CHECKED_RW : PS5_CHECKED_READ));
++   for (int i = 0; i < 3; i++) assert(!pthread_join(threads[i], NULL));
++   atomic_store(&checked_test_fail_protect_always, 1);
++   assert(!ps5_checked_protect(r, 0, 0x1000, PS5_CHECKED_READ));
++   assert(ps5_checked_access(r, 0) == -1);
++   assert(!ps5_checked_read(r, 0, readback, 1));
++   assert(!ps5_checked_write(r, 0x1000, replacement, 2));
++   assert(!ps5_checked_atomic_load(r, 0, &expected_atomic, 8));
++   assert(!ps5_checked_atomic_store(r, 0, &desired_atomic, 8));
++   assert(!ps5_checked_atomic_cas(r, 0, &expected_atomic, &desired_atomic, 8, &exchanged_atomic));
++   ps5_checked_destroy(r);
++   atomic_store(&checked_test_fail_protect_always, 0);
++   assert(ps5_checked_create(base, 0x10000, &r));
++   assert(ps5_checked_read(r, 0, readback, 16));
++   for (int i = 0; i < 16; i++) assert(readback[i] == 0);
++   ps5_checked_destroy(r);
++   puts("PASS: fixed mapping, checked 4 KiB rights, cross-page rejection, native RO, rollback, poison, concurrency, cleanup");
++   return 0;
++}
+diff --git a/platform/tests/test_checked_sparse.c b/platform/tests/test_checked_sparse.c
+new file mode 100644
+index 0000000..fa08738
+--- /dev/null
++++ b/platform/tests/test_checked_sparse.c
+@@ -0,0 +1,114 @@
++/* Large sparse checked reservations, not native-console evidence. SPDX-License-Identifier: GPL-3.0-or-later */
++#include "ps5platform/checked_region.h"
++#include <assert.h>
++#include <pthread.h>
++#include <stdatomic.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++extern atomic_int demand_test_fail_commit, checked_test_fail_decommit;
++static struct ps5_checked_region *shared;
++static void *writer(void *arg) {
++   (void)arg; unsigned char data[32]; memset(data, 0x77, sizeof data);
++   for (unsigned i = 0; i < 3000; i++) ps5_checked_write(shared, 0, data, sizeof data);
++   return NULL;
++}
++static void *reader(void *arg) {
++   (void)arg; unsigned char data[32];
++   for (unsigned i = 0; i < 3000; i++) {
++      memset(data, 0xab, sizeof data);
++      if (ps5_checked_read(shared, 0, data, sizeof data)) {
++         for (unsigned j = 1; j < sizeof data; j++) assert(data[j] == data[0]);
++      } else for (unsigned j = 0; j < sizeof data; j++) assert(data[j] == 0xab);
++   }
++   return NULL;
++}
++int main(void) {
++   const uintptr_t base = 0x6000000000ull;
++   const size_t bytes = (size_t)16 << 30;
++   struct ps5_checked_region *r = NULL, *alias = NULL, *collision = NULL;
++   assert(ps5_checked_create_sparse(base, bytes, 1, &r));
++   assert(ps5_checked_create_sparse(0x3000000000ull, (size_t)64 << 30, 0, &alias));
++   assert(!ps5_checked_create_sparse(base, 0x10000, 0, &collision));
++   assert(ps5_checked_backed_bytes(r) == 0 && ps5_checked_backed_bytes(alias) == 0);
++   assert(ps5_checked_access(r, 0) == PS5_CHECKED_RESERVED);
++   const unsigned char *fast = ps5_checked_fast(r);   /* MKWBOOT-058: direct rights only where the page is granted AND backed */
++   assert(fast[0] == 0 && fast[1] == 0);
++   unsigned char page[4096], out[4096]; memset(page, 0xcc, sizeof page);
++   assert(!ps5_checked_protect(r, 0, 4096, PS5_CHECKED_RW));
++   assert(ps5_checked_commit(r, 0, 4096));
++   assert(ps5_checked_commit(r, bytes - 4096, 4096));
++   assert(ps5_checked_backed_bytes(r) == 0);
++   assert(fast[0] == 0);   /* committed but not backed: the inline path must still ask */
++   memset(out, 0xff, sizeof out);
++   assert(ps5_checked_read(r, 0, out, sizeof out));
++   for (unsigned i = 0; i < sizeof out; i++) assert(!out[i]);
++   assert(ps5_checked_backed_bytes(r) == 0);
++   assert(ps5_checked_write(r, bytes - 4096, page, 4096));
++   assert(ps5_checked_backed_bytes(r) == 65536);
++   assert(fast[(bytes - 4096) / 4096] == 3 && fast[(bytes - 8192) / 4096] == 0);   /* backed and RW / backed but reserved */
++   assert(ps5_checked_commit(r, 4096, 4096));
++   assert(ps5_checked_write(r, 4096, page, 4096));
++   assert(ps5_checked_backed_bytes(r) == 131072);
++   assert(fast[0] == 3 && fast[1] == 3);
++   assert(ps5_checked_protect(r, 0, 4096, PS5_CHECKED_READ) && fast[0] == 1 && fast[1] == 3);
++   assert(ps5_checked_protect(r, 0, 4096, PS5_CHECKED_NONE));
++   assert(fast[0] == 0 && fast[1] == 3);
++   uint64_t value = 123, result = 99;
++   assert(!ps5_checked_read(r, 0, &result, 8) && result == 99);
++   assert(ps5_checked_poke(r, 0, &value, 8));
++   assert(ps5_checked_peek(r, 0, &result, 8) && result == value);
++   assert(!ps5_checked_write(r, 0, &value, 8));
++   assert(!ps5_checked_poke(r, 8192, &value, 8));
++   assert(!ps5_checked_peek(r, 8192, &result, 8));
++   uint64_t dirty[4];
++   assert(ps5_checked_written(r, 0, bytes, dirty, 1, 1) == 1 && dirty[0] == base);
++   assert(ps5_checked_written(r, 0, bytes, dirty, 1, 1) == 1 && dirty[0] == base + 4096);
++   assert(ps5_checked_written(r, 0, bytes, dirty, 4, 1) == 1 && dirty[0] == base + bytes - 4096);
++   assert(ps5_checked_written(r, 0, bytes, dirty, 4, 0) == 0);
++   assert(ps5_checked_written(alias, 0, 4096, dirty, 4, 0) == UINT64_MAX);
++   assert(ps5_checked_decommit(r, 0, 4096));
++   assert(fast[0] == 0 && fast[1] == 3);
++   assert(ps5_checked_backed_bytes(r) == 131072);
++   assert(ps5_checked_commit(r, 0, 4096));
++   assert(ps5_checked_read(r, 0, out, 4096));
++   for (unsigned i = 0; i < sizeof out; i++) assert(!out[i]);
++   assert(ps5_checked_read(r, 4096, out, 4096) && !memcmp(out, page, 4096));
++   assert(ps5_checked_decommit(r, 0, 8192));
++   assert(ps5_checked_backed_bytes(r) == 65536);
++   assert(ps5_checked_decommit(r, bytes - 4096, 4096));
++   assert(ps5_checked_backed_bytes(r) == 0);
++   assert(ps5_checked_commit(r, 0, bytes));
++   assert(ps5_checked_backed_bytes(r) == 0);
++   assert(ps5_checked_decommit(r, 0, bytes));
++   assert(ps5_checked_commit(r, 0, 4096));
++   uint64_t compare = 1, desired = 7; int exchanged = -1;
++   assert(ps5_checked_atomic_cas(r, 0, &compare, &desired, 8, &exchanged) && !exchanged && !compare);
++   assert(ps5_checked_backed_bytes(r) == 0);
++   assert(ps5_checked_atomic_cas(r, 0, &compare, &desired, 8, &exchanged) && exchanged);
++   assert(ps5_checked_atomic_load(r, 0, &result, 8) && result == 7);
++   assert(ps5_checked_backed_bytes(r) == 65536);
++   assert(ps5_checked_decommit(r, 0, 4096) && ps5_checked_commit(r, 0, 4096));
++   shared = r; pthread_t threads[2];
++   assert(!pthread_create(&threads[0], NULL, writer, NULL));
++   assert(!pthread_create(&threads[1], NULL, reader, NULL));
++   for (unsigned i = 0; i < 300; i++) {
++      assert(ps5_checked_decommit(r, 0, 4096));
++      assert(ps5_checked_commit(r, 0, 4096));
++   }
++   for (unsigned i = 0; i < 2; i++) assert(!pthread_join(threads[i], NULL));
++   assert(ps5_checked_write(r, 0, page, sizeof page));
++   atomic_store(&checked_test_fail_decommit, 1);
++   assert(!ps5_checked_decommit(r, 0, 4096));
++   assert(ps5_checked_access(r, 0) == -1 && ps5_checked_backed_bytes(r) == UINT64_MAX);
++   atomic_store(&checked_test_fail_decommit, 0);
++   ps5_checked_destroy(r); ps5_checked_destroy(alias);
++   assert(ps5_checked_create_sparse(base, 0x10000, 1, &r));
++   assert(ps5_checked_commit(r, 0, 4096));
++   atomic_store(&demand_test_fail_commit, 1);
++   assert(!ps5_checked_write(r, 0, &value, 8));
++   assert(ps5_checked_access(r, 0) == -1);
++   atomic_store(&demand_test_fail_commit, 0);
++   ps5_checked_destroy(r);
++   puts("PASS: 16+64 GiB sparse reservations, logical 4 KiB commit/decommit, zero-fill, dirty pages, privileged copies, races and failure poison");
++}
+diff --git a/platform/tests/test_demand.c b/platform/tests/test_demand.c
+new file mode 100644
+index 0000000..391d15b
+--- /dev/null
++++ b/platform/tests/test_demand.c
+@@ -0,0 +1,266 @@
++/* Host regression of sparse demand backing. SPDX-License-Identifier: GPL-3.0-or-later */
++#define _GNU_SOURCE
++#include "ps5platform/demand.h"
++#include <assert.h>
++#include <errno.h>
++#include <pthread.h>
++#include <signal.h>
++#include <stdatomic.h>
++#include <stdio.h>
++#include <string.h>
++#include <sys/wait.h>
++#include <unistd.h>
++#include <ucontext.h>
++
++#define UNIT ((size_t)0x10000)
++extern atomic_int demand_test_low_hint, demand_test_force_low_return;
++extern atomic_int demand_test_fixed_reject, demand_test_relocate_fail, demand_test_relocated;
++extern atomic_int demand_test_live_allocs, demand_test_fail_alloc, demand_test_map_calls, demand_test_fail_map;
++static pthread_barrier_t barrier;
++struct worker { volatile unsigned char *data; int index; };
++static void *touch_worker(void *arg)
++{
++   struct worker *work = arg;
++   assert(!ps5_demand_thread_attach());
++   pthread_barrier_wait(&barrier);
++   // All workers fault on the same unit but write different bytes.
++   assert(work->data[work->index] == 0);
++   work->data[work->index] = (unsigned char)(work->index + 1);
++   ps5_demand_thread_detach();
++   return NULL;
++}
++static void *churn_worker(void *arg)
++{
++   struct worker *work = arg;
++   assert(!ps5_demand_thread_attach());
++   pthread_barrier_wait(&barrier);
++   for (size_t i = 0; i < 64; i++) {
++      size_t at = (i * 2 + (unsigned)work->index) * UNIT;
++      assert(work->data[at] == 0);
++      work->data[at] = 17;
++   }
++   ps5_demand_thread_detach();
++   return NULL;
++}
++static void expect_fault(void *address, int execute)
++{
++   pid_t child = fork(); assert(child >= 0);
++   if (!child) {
++      if (execute) ((void (*)(void))address)();
++      else (void)*(volatile char *)address;
++      _exit(7);
++   }
++   int status;
++   assert(waitpid(child, &status, 0) == child);
++   assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV);
++}
++
++static void shared_dispatch(int sig, siginfo_t *info, void *context)
++{
++   ucontext_t *u = context;
++   unsigned error = (unsigned)u->uc_mcontext.gregs[REG_ERR];
++   unsigned access = error & 16 ? PS5_DEMAND_EXECUTE : error & 2 ? PS5_DEMAND_WRITE : PS5_DEMAND_READ;
++   int saved_errno = errno;
++   if (sig == SIGSEGV && info->si_code > 0 && ps5_demand_access((uintptr_t)info->si_addr, access)) {
++      errno = saved_errno; return;
++   }
++   _exit(88); // The consumer's crash-report path, distinct from success/looping.
++}
++static void unrelated_dispatch(int sig, siginfo_t *info, void *context)
++{ (void)sig; (void)info; (void)context; _exit(89); }
++static void expect_shared_fault(void *address, unsigned access)
++{
++   pid_t child = fork(); assert(child >= 0);
++   if (!child) {
++      if (access == PS5_DEMAND_EXECUTE) ((void (*)(void))address)();
++      else if (access == PS5_DEMAND_WRITE) *(volatile char *)address = 1;
++      else (void)*(volatile char *)address;
++      _exit(7);
++   }
++   int status; assert(waitpid(child, &status, 0) == child);
++   assert(WIFEXITED(status) && WEXITSTATUS(status) == 88);
++}
++static void test_shared_dispatch(void)
++{
++   struct sigaction old, action = {.sa_sigaction = shared_dispatch, .sa_flags = SA_SIGINFO | SA_ONSTACK};
++   sigemptyset(&action.sa_mask); assert(!sigaction(SIGSEGV, &action, &old));
++   struct ps5_demand_region *region = NULL;
++   const size_t bytes = 74973184; // Actual MKWBOOT-001 dispatch-table allocation.
++   assert(ps5_demand_create(bytes, 0, &region)); // Reproduces the unbound runtime crash-handler conflict.
++   assert(!region && !atomic_load(&demand_test_live_allocs));
++   assert(ps5_demand_bind_dispatcher(unrelated_dispatch));
++   assert(!ps5_demand_bind_dispatcher(shared_dispatch));
++   assert(!ps5_demand_create(bytes, 0, &region));
++   assert(!sigaction(SIGSEGV, NULL, &action) && action.sa_sigaction == shared_dispatch);
++   volatile unsigned char *table = ps5_demand_data(region);
++   assert(ps5_demand_size(region) >= bytes && !ps5_demand_backed_bytes());
++   table[0] = 23; table[bytes - 1] = 41;
++   assert(ps5_demand_backed_bytes() == 2 * UNIT);
++   assert(!ps5_demand_seal_readonly(region));
++   assert(table[0] == 23 && table[bytes - 1] == 41 && table[UNIT] == 0);
++   expect_shared_fault((void *)table, PS5_DEMAND_WRITE);
++   expect_shared_fault((void *)(table + 2 * UNIT), PS5_DEMAND_WRITE);
++   expect_shared_fault((void *)table, PS5_DEMAND_EXECUTE);
++   expect_shared_fault(NULL, PS5_DEMAND_READ);
++   ps5_demand_destroy(region);
++   assert(!ps5_demand_backed_bytes() && !atomic_load(&demand_test_live_allocs));
++   assert(!ps5_demand_bind_dispatcher(NULL));
++   assert(ps5_demand_create(UNIT, 0, &region)); // Unbinding never silently accepts a custom handler.
++   assert(!sigaction(SIGSEGV, &old, NULL));
++   puts("PASS: real 74973184-byte table with explicitly bound crash dispatcher; zero fill, seal, NX and write rejection");
++}
++
++int main(int argc, char **argv)
++{
++   struct ps5_demand_region *region = NULL;
++   if (argc == 2 && !strcmp(argv[1], "--conflict")) {
++      struct sigaction action = {.sa_handler = SIG_IGN};
++      sigemptyset(&action.sa_mask);
++      assert(!sigaction(SIGSEGV, &action, NULL));
++      assert(ps5_demand_create(UNIT, UNIT, &region));
++      assert(!region && !atomic_load(&demand_test_live_allocs));
++      assert(!sigaction(SIGSEGV, NULL, &action) && action.sa_handler == SIG_IGN);
++      puts("PASS: demand handler conflict refused");
++      return 0;
++   }
++   assert(ps5_demand_create(0, UNIT, &region));
++   assert(ps5_demand_create(SIZE_MAX, UNIT, &region));
++   assert(ps5_demand_create(UNIT, SIZE_MAX, &region));
++   atomic_store(&demand_test_force_low_return, 1);
++   assert(ps5_demand_create(UNIT, UNIT, &region));
++   assert(!region && !atomic_load(&demand_test_live_allocs));
++   atomic_store(&demand_test_force_low_return, 0);
++   assert(!ps5_demand_create(256u << 20, UNIT, &region));
++   assert(ps5_demand_size(region) == 256u << 20);
++   assert(!atomic_load(&demand_test_low_hint));
++   struct ps5_demand_failure prepare_error;
++   assert(ps5_demand_prepare(region, SIZE_MAX, UNIT, &prepare_error));
++
++   assert(ps5_demand_reserved(region) == (512u << 20) + UNIT);
++   assert(!ps5_demand_backed_bytes() && !atomic_load(&demand_test_live_allocs));
++   assert(!ps5_demand_thread_attach());
++   assert(!ps5_demand_thread_attach());
++   ps5_demand_thread_detach(); // Nested attach keeps the signal stack alive.
++   volatile unsigned char *data = ps5_demand_data(region);
++   errno = EDOM;
++   assert(data[0] == 0 && errno == EDOM);
++   data[0] = 73;
++   assert(data[UNIT + 123] == 0);
++   data[(256u << 20) - 1] = 91;
++   assert(data[0] == 73 && data[(256u << 20) - 1] == 91);
++   assert(ps5_demand_backed_bytes() == 3 * UNIT);
++   assert(atomic_load(&demand_test_live_allocs) == 3);
++   assert(!ps5_demand_fault((uintptr_t)data - 1));
++   expect_fault((void *)(data - 1), 0);
++   expect_fault((void *)data, 1); // A backed demand page must remain non-executable.
++   pid_t conflict = fork(); assert(conflict >= 0);
++   if (!conflict) {
++      struct sigaction action = {.sa_handler = SIG_IGN};
++      sigemptyset(&action.sa_mask);
++      assert(!sigaction(SIGSEGV, &action, NULL));
++      struct ps5_demand_region *other = NULL;
++      assert(ps5_demand_create(UNIT, UNIT, &other));
++      assert(!other);
++      _exit(0);
++   }
++   int conflict_status;
++   assert(waitpid(conflict, &conflict_status, 0) == conflict);
++   assert(WIFEXITED(conflict_status) && WEXITSTATUS(conflict_status) == 0);
++
++   struct ps5_demand_region *shared = NULL;
++   assert(!ps5_demand_create(UNIT, UNIT, &shared));
++   pthread_t threads[8]; struct worker work[8];
++   assert(!pthread_barrier_init(&barrier, NULL, 8));
++   for (int i = 0; i < 8; i++) {
++      work[i] = (struct worker){ps5_demand_data(shared), i};
++      assert(!pthread_create(&threads[i], NULL, touch_worker, &work[i]));
++   }
++   for (int i = 0; i < 8; i++) assert(!pthread_join(threads[i], NULL));
++   for (int i = 0; i < 8; i++) assert(work[i].data[i] == i + 1);
++   assert(ps5_demand_backed_bytes() == 4 * UNIT);
++   assert(!pthread_barrier_destroy(&barrier));
++   ps5_demand_destroy(shared);
++   ps5_demand_destroy(region);
++   assert(!ps5_demand_backed_bytes() && !atomic_load(&demand_test_live_allocs));
++
++   // Add and remove registry nodes while other regions are being faulted in.
++   assert(!ps5_demand_create(128 * UNIT, UNIT, &shared));
++   assert(!pthread_barrier_init(&barrier, NULL, 3));
++   for (int i = 0; i < 2; i++) {
++      work[i] = (struct worker){ps5_demand_data(shared), i};
++      assert(!pthread_create(&threads[i], NULL, churn_worker, &work[i]));
++   }
++   pthread_barrier_wait(&barrier);
++   for (int i = 0; i < 64; i++) {
++      struct ps5_demand_region *temporary = NULL;
++      assert(!ps5_demand_create(UNIT, UNIT, &temporary));
++      ps5_demand_destroy(temporary);
++   }
++   for (int i = 0; i < 2; i++) assert(!pthread_join(threads[i], NULL));
++   assert(ps5_demand_backed_bytes() == 128 * UNIT);
++   for (size_t i = 0; i < 128; i++) assert(((unsigned char *)ps5_demand_data(shared))[i * UNIT] == 17);
++   ps5_demand_destroy(shared);
++   assert(!pthread_barrier_destroy(&barrier));
++   assert(!ps5_demand_backed_bytes() && !atomic_load(&demand_test_live_allocs));
++
++   for (int fail = 0; fail < 2; fail++) {
++      atomic_store(&demand_test_fixed_reject, 1);
++      atomic_store(&demand_test_relocate_fail, fail);
++      atomic_store(&demand_test_map_calls, 0);
++      assert(!ps5_demand_create(UNIT, UNIT, &region));
++      struct ps5_demand_failure error;
++      int result = ps5_demand_prepare(region, 0, UNIT, &error);
++      if (fail) assert(result && error.stage == PS5_DEMAND_MAP_STAGING);
++      else {
++         assert(!result && atomic_load(&demand_test_relocated));
++         unsigned char *p = ps5_demand_data(region);
++         for (size_t i = 0; i < UNIT; i++) assert(!p[i]);
++         p[UNIT - 1] = 91;
++         assert(!ps5_demand_seal_readonly(region) && p[UNIT - 1] == 91);
++         pid_t child = fork(); assert(child >= 0);
++         if (!child) { *(volatile unsigned char *)p = 1; _exit(7); }
++         int status; assert(waitpid(child, &status, 0) == child);
++         assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV);
++      }
++      ps5_demand_destroy(region);
++      assert(!ps5_demand_backed_bytes() && !atomic_load(&demand_test_live_allocs));
++   }
++   assert(!atomic_load(&demand_test_relocated));
++   atomic_store(&demand_test_fixed_reject, 0);
++   atomic_store(&demand_test_relocate_fail, 0);
++   for (int fail = 0; fail < 3; fail++) {
++      assert(!ps5_demand_create(UNIT, UNIT, &region));
++      atomic_store(&demand_test_map_calls, 0);
++      atomic_store(&demand_test_fail_alloc, fail == 0);
++      atomic_store(&demand_test_fail_map, fail);
++      struct ps5_demand_failure error;
++      assert(ps5_demand_prepare(region, 0, UNIT, &error));
++      assert(error.stage == fail + 1 && error.result == -1);
++      assert(error.data == (uintptr_t)ps5_demand_data(region));
++      assert(error.staging && error.staging != error.data);
++      assert(!ps5_demand_fault((uintptr_t)ps5_demand_data(region)));
++      struct ps5_demand_failure again;
++      assert(ps5_demand_prepare(region, 0, UNIT, &again));
++      assert(again.stage == error.stage && again.result == error.result);
++      ps5_demand_destroy(region);
++      assert(!ps5_demand_backed_bytes() && !atomic_load(&demand_test_live_allocs));
++   }
++   atomic_store(&demand_test_fail_alloc, 0);
++   atomic_store(&demand_test_fail_map, 0);
++   assert(!ps5_demand_create(4 * UNIT, 0, &region));
++   volatile unsigned char *sealed = ps5_demand_data(region); sealed[0] = 29;
++   assert(!ps5_demand_seal_readonly(region));
++   assert(sealed[0] == 29 && sealed[UNIT] == 0);
++   for (unsigned i = 0; i < 2; i++) {
++      pid_t child = fork(); assert(child >= 0);
++      if (!child) { sealed[i ? 2 * UNIT : 0] = 1; _exit(7); }
++      int status; assert(waitpid(child, &status, 0) == child);
++      assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV);
++   }
++   ps5_demand_destroy(region);
++   assert(!ps5_demand_backed_bytes() && !atomic_load(&demand_test_live_allocs));
++   ps5_demand_thread_detach();
++   test_shared_dispatch();
++   puts("PASS: 256 MiB sparse region, zero-fill, concurrent faults and registry churn, guards, NX, allocation/map failure cleanup");
++   return 0;
++}
