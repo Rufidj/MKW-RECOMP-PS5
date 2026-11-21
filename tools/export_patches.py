@@ -18,7 +18,7 @@ OUT = Path(sys.argv[2])
 CACHE = Path(sys.argv[3])   # clones of the upstreams
 PROJECTS = [
     # name, local folder, upstream url, commit, excluded top-level or path prefixes
-    ('mkw-recomp', 'mkw-recomp', 'https://github.com/adriadam10/mkw-recomp.git', 'e652497ab3284d53bed671c012d86c7e397f19f5',
+    ('mkw-recomp', 'mkw-recomp', 'https://github.com/adriadam10/mkw-recomp.git', '8309bc8b83a05b5df863cc211a86f85e8e3556e7',
      ['.ninja_deps', '.ninja_log', 'build/', 'game/']),
     ('PS5_PayloadSDK', 'PS5_PayloadSDK', 'https://github.com/mihawk-99/PS5_PayloadSDK.git', 'b5efad528e0ac1b8289f39d72a0e890ff68ff0a6',
      ['platform/build/']),

@@ -1,7 +1,7 @@
 {
   "mkw-recomp": {
     "url": "https://github.com/adriadam10/mkw-recomp.git",
-    "commit": "e652497ab3284d53bed671c012d86c7e397f19f5",
+    "commit": "8309bc8b83a05b5df863cc211a86f85e8e3556e7",
     "patch": "patches/mkw-recomp.patch",
     "folder": "mkw-recomp"
   },
@@ -22,9 +22,9 @@
     "commit": "b577e950684e8bb835746ad0e38495ebcb154fd0",
     "patch": "patches/PS5_VulkanTemplate.patch",
     "folder": "PS5_MKWProbe",
-    "deleted": "patches/PS5_VulkanTemplate.deleted",
     "submodules": [
       "external/glm"
-    ]
+    ],
+    "deleted": "patches/PS5_VulkanTemplate.deleted"
   }
 }

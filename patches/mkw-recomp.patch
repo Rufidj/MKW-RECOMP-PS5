@@ -1,21 +1,22 @@
-diff --git a/docs/research.md b/docs/research.md
-index 6a53aea..896580c 100644
---- a/docs/research.md
-+++ b/docs/research.md
-@@ -43,6 +43,11 @@ GPL ones and from those without a license, only ideas.
- 
- | Source | License | What is used |
- |---|---|---|
+diff --git a/docs/project/research.md b/docs/project/research.md
+index 4f6a9a3..8a428cb 100644
+--- a/docs/project/research.md
++++ b/docs/project/research.md
+@@ -47,6 +47,12 @@ GPL ones and from those without a license, only ideas.
+ | [libdrm `amdgpu`](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/amdgpu/amdgpu_device.c) (main, 17/11/2026) | MIT | Only knowledge: `amdgpu_device_initialize` keeps its own duplicate of the fd (so `vk_pstate.c` closes its own) |
+ | [i915 `i915_request.c`](https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/i915/i915_request.c) (master, 17/11/2026) | GPL-2.0 | Only knowledge: Intel's kernel driver raises the clock when a client waits on unfinished work (waitboost), so the idle-gap clock drop of `--probe-gpu-clocks` is not expected there |
+ | [Atmosphere-NX/Atmosphere](https://github.com/Atmosphere-NX/Atmosphere) `libmesosphere` (master, 19/11/2026) | GPL-2.0 | Only knowledge of the Switch kernel's argument checks: `SetThreadCoreMask` (`kern_svc_thread.cpp`: InvalidCoreId for a mask or core outside the process, InvalidCombination for an empty mask or the core outside it; -1 = don't care, -2 = the process's ideal core alone, -3 = no update) and `CreateThread`'s core range; `GetThreadCoreMask` returns the ideal core the thread was given, -1 after "don't care" (`kern_k_thread.cpp` `KThread::GetCoreMask`, `SetCoreMask`), not the core it runs on (`RtThread.ideal`, #343) |
 +| [Xiph Opus 1.6.1](https://opus-codec.org/downloads/) | BSD-3-Clause | Real native PS5 codec, official tarball checked against the published SHA-256; sources/COPYING retained under build/. Hardware audio output remains deferred |
 +| [WebM libvpx v1.17.0](https://github.com/webmproject/libvpx/tree/v1.17.0) | BSD-3-Clause | Native VP8/VP9 encoder/decoder library, including high-bit-depth VP9 and pthreads, built with the upstream generic C backend; archive SHA-256 pinned and LICENSE retained under build/ |
 +| [GPUOpen VulkanMemoryAllocator v3.4.0](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/tree/v3.4.0) | MIT | PS5 build dependency header, kept in build/ with its full license; checksum pinned by tools/build/ps5_deps.py |
 +| [facebook/zstd v1.5.7](https://github.com/facebook/zstd/tree/v1.5.7) | BSD-3-Clause (or GPL-2.0) | Full native static decoder/compressor library for the PS5 runtime, built from the pinned official source archive under build/; BSD license retained |
 +| [Cyan4973/xxHash v0.8.3](https://github.com/Cyan4973/xxHash/tree/v0.8.3) | BSD-2-Clause | Official checksum-pinned header under build/ for the existing XXH_INLINE_ALL texture cache; license included in header |
- | [Atmosphere-NX/Atmosphere](https://github.com/Atmosphere-NX/Atmosphere) `libmesosphere` (master, 12/11/2026) | GPL-2.0 | Only knowledge of the Switch kernel's argument checks: `SetThreadCoreMask` (`kern_svc_thread.cpp`: InvalidCoreId for a mask or core outside the process, InvalidCombination for an empty mask or the core outside it; -1 = the process's ideal core alone) and `CreateThread`'s core range |
++| [Atmosphere-NX/Atmosphere](https://github.com/Atmosphere-NX/Atmosphere) `libmesosphere` (master, 12/11/2026) | GPL-2.0 | Only knowledge of the Switch kernel's argument checks: `SetThreadCoreMask` (`kern_svc_thread.cpp`: InvalidCoreId for a mask or core outside the process, InvalidCombination for an empty mask or the core outside it; -1 = the process's ideal core alone) and `CreateThread`'s core range |
  | [Takoroka/eden-nx2](https://git.eden-emu.dev/Takoroka/eden-nx2), branch `eden-nx2` (50fa86bb, 29/10/2026) | GPL-3.0 | **The first to run MKW** (an emulator): title, Mushroom Cup movie and race, ~17-25 ms/frame on an RTX 4070 laptop. `NX2_NOTES.md`: 149 blockers with cause and fix: protocol of the new services (`gsv`, `vi2`, `syncpt`, `nvsrv`, `gpu` 101/211/212/214/215), memory (12 GB, sparse regions of ~20 GB), Ampere GPU (classes C797/C7C0/C7B5, Turing MME64 macros, QMD 3.0), lowering Ampere SASS to Maxwell (`shader_recompiler/frontend/ampere/lower_to_maxwell.h`, 2 249 lines), ASTC with Switch 2's swizzle, VP9 video. Taken as ideas only: Maxwell's `InstanceId` is `InstanceIndex - BaseInstance` in Vulkan → `sm86/translate/glsl/mem.py`; an `LDG`/`STG` whose base is not tracked searches its buffer among the program's at run time → `global_search` in `sm86/translate/glsl/mem.py`; "read traps" (what the GPU writes reaches game memory when the game touches it) → `mem_trap` in `runtime/core/memory/memory.c`, our own code; the alpha test as a discard in the FS before writing, with function and reference fixed in the pipeline → `spirv_alpha_test` in `runtime/gfx/vk/pipe/vk_spirv_patch.c`, our own code; Maxwell's `KIL` as a demote to helper invocation, not `OpKill` (`emit_spirv_control_flow.cpp`) → `KILL` in `sm86/translate/glsl/core.py` (#22) |
- | [nothings/stb](https://github.com/nothings/stb) `stb_image.h` v2.30 @ 048d2aa5 (28/10/2026) | MIT or public domain | Code, unchanged in `runtime/third_party/stb/`: the JPEG and PNG decoder of the Mods page's GameBanana pictures |
+ | [Discord RPC](https://discord.com/developers/docs/topics/rpc) and [discord/discord-rpc](https://github.com/discord/discord-rpc) (archived, 3.4.0) | Discord's documentation; MIT | The protocol only, our own code (`runtime/core/presence/presence.c`): the local pipe `discord-ipc-N` (named pipe on Windows, Unix socket under `$XDG_RUNTIME_DIR` and the Flatpak and Snap folders on Linux), frames of op and length, the handshake, `SET_ACTIVITY` with the process id, PING/PONG and CLOSE |
+ | [Cemuhook protocol](https://v1993.github.io/cemuhook-protocol/) (v1993, protocol version 1001) and [Dolphin's DSU client](https://github.com/dolphin-emu/dolphin/blob/master/Source/Core/InputCommon/ControllerInterface/DualShockUDPClient/DualShockUDPClient.cpp) (master, 16/11/2026) | The page: no license stated; Dolphin: GPL-2.0+ | The protocol only, our own code (`runtime/input/dsu.c`): the header (magic, version, length, CRC32, id), the pad data request and its 100 byte answer, units (G, deg/s). From Dolphin only the meaning of the motion axes, which the page does not give: its inputs "Accel Up" = -y, "Right" = -x, "Forward" = +z, "Pitch Up" = +pitch, "Roll Right" = +roll, "Yaw Right" = +yaw → `dsu_axes` |
 diff --git a/recomp/README.md b/recomp/README.md
-index dd514c3..d655c41 100644
+index c91e63e..8157ec6 100644
 --- a/recomp/README.md
 +++ b/recomp/README.md
 @@ -9,6 +9,7 @@ is `patches-mkw.txt`. Kept close to the original so the two can be compared; ruf
@@ -25,7 +26,7 @@ index dd514c3..d655c41 100644
 +- `lifter.py`: CAS/CASP and LSE atomics emit the selection macros in runtime/cpu/atomic.h, which preserve native builtins by default and permit checked diagnostic hooks. Existing generated C must be regenerated to use these hooks. DC ZVA and other raw-pointer paths still require separate integration.
  - `lifter.py`: `RETAA`/`RETAB` as `ret`, `LDAPR*` as a load-acquire, `PAC*`/`AUT*`/`XPAC*` as identity (Switch 2's
    ARMv8.3).
- - `patches-mkw.txt`: besides the spin waits and zstd, the `output` set (the game's output size, `patches.c`) and the
+ - `patches-mkw.txt`: the `vertplus` set supplies the late race-FOV hook for tall Window mode (also in
 diff --git a/recomp/lifter.py b/recomp/lifter.py
 index 4b57c75..265e9f8 100644
 --- a/recomp/lifter.py
@@ -78,11 +79,11 @@ index 4b57c75..265e9f8 100644
              fn = ('smax', 'smin', 'umax', 'umin')[opc - 4]
              expr = f'atomic_{fn}{nbits}({XS(rn)}, {v})'
 diff --git a/runtime/audio/README.md b/runtime/audio/README.md
-index cf94813..cc61abc 100644
+index 904e09a..9c5a5c7 100644
 --- a/runtime/audio/README.md
 +++ b/runtime/audio/README.md
 @@ -5,3 +5,8 @@
- | `audren.c`, `audren.h` | Audio renderer behind the SDK's `nn::audio` client, with Switch 2's `SetVoiceDropParameter` |
+ | `audren.c`, `audren.h` | Audio renderer behind the SDK's `nn::audio` client, with Switch 2's `SetVoiceDropParameter`; RequestUpdate keeps voice state/status by input slot, so unused zeroed records do not reset voice 0 (`tests/test_audio_update.py`) |
  | `audren_sf.c` | The client's service objects (`IAudioRendererManager`, `IAudioRenderer`, `IAudioDevice`) made by the host: `nn::audio::CreateAudioRendererManager(bool)`, replaced by name, returns an object whose virtual table is host functions (`HOST_FUNCTION`); no IPC. The ABI of `nn::sf` objects is in its header |
  | `audio_mixer.c`, `audio_effects.*`, `audio_reverb.*` | Mixing and effects; output through SDL3; `IAudioDevice` with Switch 2's commands 19/20. Diagnostics with `MKW_TRACE=audio` (level, underruns, voices run dry, pauses of voices that were playing) and `MKW_AUDIO_RAW=<path>` (output as stereo float32) |
 +
@@ -91,10 +92,10 @@ index cf94813..cc61abc 100644
 +that target; `MKW_PS5_SILENT_AUDIO` selects the same path in host checks. The
 +desktop output path remains available on desktop builds.
 diff --git a/runtime/audio/audio_mixer.c b/runtime/audio/audio_mixer.c
-index f9820af..78ede2a 100644
+index 38200cd..791c333 100644
 --- a/runtime/audio/audio_mixer.c
 +++ b/runtime/audio/audio_mixer.c
-@@ -15,7 +15,13 @@
+@@ -17,7 +17,13 @@
  #include <stdlib.h>
  #include <string.h>
  
@@ -108,7 +109,7 @@ index f9820af..78ede2a 100644
  
  #include "cfg.h"
  #include "gfx.h"
-@@ -41,7 +47,10 @@ typedef struct Mixer {
+@@ -43,7 +49,10 @@ typedef struct Mixer {
      float *buf; int nbuf, frame;
      int *offset;                                   // first mix buffer of each mix id
      SplitInfo *split; int nsplit; SplitDest *dest; int ndest;
@@ -120,15 +121,15 @@ index f9820af..78ede2a 100644
      float ring[RING_FRAMES * 6];
      _Atomic uint64_t wr, rd, underruns, overruns, missing_frames, callback_frames, callback_nonzero;
      _Atomic int playing; int ready;                // ready: the callback's own state
-@@ -101,6 +110,7 @@ static int prefill_blocks_for(const char *e) {
- }
+@@ -109,6 +118,7 @@ static int prefill_blocks_for(const char *e) {
  
- // Fills `frames` frames of m->ch channels from the ring (zeros for what is missing). Lock-free; SDL's audio thread.
+ // Fills `frames` frames of m->ch channels from the ring (zeros for what is missing); `need` is SDL's whole request,
+ // which a (re)start waits to have queued so it is not cut short by its own second chunk. Lock-free; SDL's audio thread.
 +#if !defined(MIXER_SILENT_OUTPUT) || defined(__PROSPERO__)
- static void ring_pull(Mixer *m, float *out, uint32_t frames) {
+ static void ring_pull(Mixer *m, float *out, uint32_t frames, uint32_t need) {
      atomic_fetch_add(&m->callback_frames, frames);
      unsigned epoch = atomic_load_explicit(&m->stop_epoch, memory_order_acquire);
-@@ -148,7 +158,9 @@ static void ring_pull(Mixer *m, float *out, uint32_t frames) {
+@@ -159,7 +169,9 @@ static void ring_pull(Mixer *m, float *out, uint32_t frames, uint32_t need) {
      }
      atomic_store_explicit(&m->rd, rd + n, memory_order_release);
  }
@@ -138,7 +139,7 @@ index f9820af..78ede2a 100644
  static void SDLCALL sdl_pull(void *user, SDL_AudioStream *stream, int additional, int total) {
      (void)total;
      Mixer *m = user;
-@@ -163,6 +175,7 @@ static void SDLCALL sdl_pull(void *user, SDL_AudioStream *stream, int additional
+@@ -175,6 +187,7 @@ static void SDLCALL sdl_pull(void *user, SDL_AudioStream *stream, int additional
          additional -= (int)frames * bytes;
      }
  }
@@ -146,7 +147,7 @@ index f9820af..78ede2a 100644
  
  // MKW_AUDIO_CHANNELS: auto (default: 5.1 when the default output device has 6 channels or more), 2 or 6. The game
  // asks it (IAudioDevice GetActiveChannelCount, audren_sf.c) and mixes its device sink to that many, as the console
-@@ -172,13 +185,16 @@ int audio_output_channels(void) {
+@@ -184,13 +197,16 @@ int audio_output_channels(void) {
      static _Atomic int ch;
      int n = atomic_load(&ch);
      if (n) return n;
@@ -165,7 +166,7 @@ index f9820af..78ede2a 100644
      n = !strcmp(e, "6") || have >= 6 ? 6 : 2;
      int was = 0;
      if (atomic_compare_exchange_strong(&ch, &was, n))
-@@ -186,6 +202,26 @@ int audio_output_channels(void) {
+@@ -198,6 +214,26 @@ int audio_output_channels(void) {
      return atomic_load(&ch);
  }
  
@@ -180,7 +181,7 @@ index f9820af..78ede2a 100644
 +    float tmp[2 * 256];
 +    while (count > 0) {
 +        int n = count > 256 ? 256 : count;
-+        ring_pull(m, tmp, (uint32_t)n);
++        ring_pull(m, tmp, (uint32_t)n, (uint32_t)n);
 +        for (int i = 0; i < 2 * n; i++) {
 +            float v = tmp[i] * 32767.0f;
 +            out[i] = (int16_t)(v > 32767.0f ? 32767 : v < -32768.0f ? -32768 : (int)lrintf(v));
@@ -192,7 +193,7 @@ index f9820af..78ede2a 100644
  static void output_open(Mixer *m, int rate) {
      m->ch = audio_output_channels();
      const char *mode = cfg_get("MKW_AUDIO");
-@@ -193,6 +229,29 @@ static void output_open(Mixer *m, int rate) {
+@@ -205,6 +241,29 @@ static void output_open(Mixer *m, int rate) {
          rt_log("audio: MKW_AUDIO=none: mixing without a device");
          return;
      }
@@ -222,15 +223,33 @@ index f9820af..78ede2a 100644
      if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
          rt_log("audio: SDL audio init failed (%s): mixing without sound", SDL_GetError());
          return;
-@@ -213,6 +272,7 @@ static void output_open(Mixer *m, int rate) {
-     const char *name = SDL_GetAudioDeviceName(SDL_GetAudioStreamDevice(m->stream));
-     rt_log("audio: SDL device '%s' opened, %d Hz %s float, prefill %d ms", name ? name : "?", rate,
-            m->ch == 6 ? "5.1" : "stereo", m->prefill * 5);
+@@ -240,6 +299,7 @@ static void output_open(Mixer *m, int rate) {
+     rt_log("audio: SDL device '%s' opened, %d Hz %s float, period %d frames (device %d Hz %d ch), prefill %d ms, "
+            "driver %s", name ? name : "?", rate, m->ch == 6 ? "5.1" : "stereo", period, got.freq, got.channels,
+            prefill_ms > floor_ms ? prefill_ms : floor_ms, SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "?");
++#endif
+ }
+ 
+ // One line per 5 s of output while the device runs out of audio, with or without MKW_TRACE: each underrun is a gap
+@@ -266,6 +326,9 @@ static void underrun_note(Mixer *m) {
+ // MKW_AUDIO_SKEW (a test, default 1): multiplies the ratio SDL gets without the matching knowing, as a device at
+ // another rate would (0.91875 is the player's 44 100 against 48 000). Render thread only.
+ static void rate_match(Mixer *m) {
++#ifdef MIXER_SILENT_OUTPUT
++    (void)m;   // the PS5 output runs at its stated 48 kHz
++#else
+     if (!m->device_ok) return;
+     m->rm_fill += (double)(atomic_load(&m->wr) - atomic_load_explicit(&m->rd, memory_order_acquire));
+     if (++m->rm_blocks * m->frame < m->rate) return;   // a second of render blocks
+@@ -302,6 +365,7 @@ static void rate_match(Mixer *m) {
+         rt_log("audio: the device takes %.0f frames a second of the %d written: resampled by %.4fx to match",
+                device, m->rate, r);
+     }
 +#endif
  }
  
  // Render thread only.
-@@ -336,10 +396,15 @@ void audio_mixer_set_running(AudioRenderer *r, int running) {
+@@ -427,10 +491,15 @@ void audio_mixer_set_running(AudioRenderer *r, int running) {
  void audio_mixer_close(AudioRenderer *r) {
      Mixer *m = r->mixer;
      if (!m) return;
@@ -247,7 +266,7 @@ index f9820af..78ede2a 100644
      for (int i = 0; i < r->param.effect_count; i++) {
          audio_reverb_free(m->effect[i].reverb);
 diff --git a/runtime/core/base/README.md b/runtime/core/base/README.md
-index 2d53d10..d954be1 100644
+index 47da2e5..d3aafec 100644
 --- a/runtime/core/base/README.md
 +++ b/runtime/core/base/README.md
 @@ -3,6 +3,10 @@
@@ -456,23 +475,31 @@ index 0000000..086b039
 +}
 +#endif
 diff --git a/runtime/core/base/cfg.c b/runtime/core/base/cfg.c
-index 2f01413..1ae19aa 100644
+index 07ac292..9a6fdc8 100644
 --- a/runtime/core/base/cfg.c
 +++ b/runtime/core/base/cfg.c
-@@ -40,7 +40,7 @@ static const char *const known[] = {
+@@ -40,14 +40,14 @@ static const char *const known[] = {
      "BIND_SKIP", "BIND_STATS", "BIND_UP", "BIND_X", "BIND_Y",
-     "BIND_ZL", "BIND_ZR", "BUTTON_ICONS", "CORE_DIAG", "CRIT", "CRIT_OUT", "CTL", "DESC_TEMPLATE", "DETAIL_DISTANCE", "DEVICE_PROFILE", "DUMP", "DUMP_BUF", "DUMP_DIR", "DUMP_DRAWS", "DUMP_DRAWS_RECT", "DUMP_LOG",
+     "BIND_ZL", "BIND_ZR", "BUTTON_ICONS", "CLASSIC_GP", "CLASSIC_VS", "CORE_DIAG", "CRIT", "CRIT_OUT", "CTL", "DESC_TEMPLATE", "DETAIL_DISTANCE", "DEVICE_PROFILE", "DISCORD", "DISCORD_APP", "DUMP", "DUMP_BUF", "DUMP_DIR", "DUMP_DRAWS", "DUMP_DRAWS_RECT", "DUMP_DRAWS_SKIP", "DSU", "DSU_SERVER", "DSU_SLOT", "DYN_DIFF", "DUMP_LOG",
      "EXEFS", "FEEDBACK", "FG_BIAS", "FG_DUMP", "FG_DUMP_DIR", "FG_LAMBDA", "FG_PROBE", "FIX_C0", "FIX_ZERO", "FLIGHT", "FLIGHT_AT", "FLIGHT_DIR", "FLIGHT_FRAMES", "FLIGHT_SPIKE_MS",
--    "FLIGHT_THUMBS", "FPS", "FRAMEGEN", "FREEZE_IDLE", "GLYPH_DUMP", "FREE_CORES", "FULLSCREEN", "GAME_DIR", "GPL", "GPL_DRAW_BUILD", "GPU",
-+    "FASTCOPY", "FLIGHT_THUMBS", "FPS", "FRAMEGEN", "FREEZE_IDLE", "GLYPH_DUMP", "FREE_CORES", "FULLSCREEN", "GAME_DIR", "GPL", "GPL_DRAW_BUILD", "GPU",
-     "GPU_CRUMBS", "GPU_CRUMBS_DRAW", "HDR", "HDR_FAKE", "GPU_INDEX", "GPU_MEM_LIMIT", "GPU_NAME", "INPUT", "INPUT_RECORD", "INPUT_SCRIPT", "LAN", "LAN_IP", "LANG",
-     "LOCALE", "MEMORY", "MESH_COMPUTE", "MENU_LANG", "MENU_TEST",
+-    "FLIGHT_THUMBS", "FPS", "FRAMEGEN", "FREEZE_IDLE", "GB_MATURE", "GLYPH_DUMP", "FREE_CORES", "FULLSCREEN", "GAME_DIR", "GPL", "GPL_DRAW_BUILD", "GPU",
++    "FASTCOPY", "FLIGHT_THUMBS", "FPS", "FRAMEGEN", "FREEZE_IDLE", "GB_MATURE", "GLYPH_DUMP", "FREE_CORES", "FULLSCREEN", "GAME_DIR", "GPL", "GPL_DRAW_BUILD", "GPU",
+     "GPU_CRUMBS", "GPU_CRUMBS_DRAW", "HDR", "HDR_FAKE", "HDR_PEAK", "HDR_SYSTEM", "HDR_TONEMAP", "HDR_WHITE", "RDX_SPLIT", "SCREEN_RAW", "HUD_POSITION", "HUD_PROBE", "GPU_INDEX", "GPU_MEM_LIMIT", "GPU_NAME", "INPUT", "INPUT_RECORD", "INPUT_SCRIPT", "LAN", "LAN_IP", "LOGIC_HZ", "LOGIC_HZ_TT", "LAN_PEERS", "LANG", "LATENCY", "LOW_LATENCY",
+     "LOCALE", "MEMORY", "MENU_SHORTCUT", "MESH_COMPUTE", "MENU_LANG", "MENU_TEST",
      "MENU_TEST_DIR", "MENU_TEST_SET", "MINIMAL_LAYOUT", "MIRROR_GAP", "MODS", "MODS_ACK", "MODS_PLAYED", "MOTION",
+     "MOUSE_SENS", "KEYBOARD_MOUSE", "PLAYER",   // PLAYER: the launcher's choice (core/base/players.h), no row: Reset all leaves it
+     "ONE_PER_CORE", "OPERATION_MODE", "PAD_LAYOUT", "PERF_OVERLAY", "PERF_SLOW_MS", "PICTURE_FIT", "PIPELINE_CACHE", "PIPE_AUTOSAVE_S", "PIPE_MEMO", "PIPE_PREBUILD", "PIPE_SKIP", "PIPE_STALL", "PIPE_SYNC", "PIPE_TRACE", "POOL_SPILL", "PIPE_WAIT", "PIPE_WORKERS",
+     "PROBE", "QUEUE_WAITS", "PROFILE", "PROFILE_CHAINS", "PROFILE_DIR", "PROFILE_FRAMES",
+-    "PROFILE_MAIN", "PROFILE_RENDER", "PUSH_SKIP", "PUSH_STAGE", "RDOC", "RDOC_DIR", "RDOC_DLL", "REC_SET_WRITE", "REEXEC",
++    "PROFILE_MAIN", "PROFILE_RENDER", "PUSH_SKIP", "PUSH_STAGE", "RDOC", "RDOC_DIR", "RDOC_DLL", "REC_SET_WRITE", "REEXEC", "REPLAY_PAR", "REPLAY_PAR_DRAWS", "REPLAY_PAR_FIRST", "REPLAY_PAR_WARM",
+     "BIND_XF", "REG_LATE", "REG_QUEUED", "REPLAY_ASYNC", "USNAP_CMP",
+     "REPLAY_CHECK", "RESOLUTION", "RESOLVE_CHECK", "ROMFS", "RTSTATS", "ROMFS_MODS", "ROMFS_PATCHES",
+     "RUMBLE", "RUMBLE_CURVE", "RUMBLE_STRENGTH", "RUMBLE_TRIGGERS",
 diff --git a/runtime/core/base/ctl.c b/runtime/core/base/ctl.c
-index f5cd4ed..4aa7e78 100644
+index 3eac596..a3dd125 100644
 --- a/runtime/core/base/ctl.c
 +++ b/runtime/core/base/ctl.c
-@@ -31,6 +31,7 @@
+@@ -36,6 +36,7 @@
  #include "host.h"
  #include "input.h"
  #include "nvn_api.h"
@@ -480,7 +507,7 @@ index f5cd4ed..4aa7e78 100644
  #include "vk.h"
  #include "vk_exec.h"
  #include "platform/platform.h"
-@@ -41,7 +42,9 @@ void ctl_run(char *line) {
+@@ -46,7 +47,9 @@ void ctl_run(char *line) {
      char cmd[16], arg[400] = "";
      if (sscanf(line, "%15s %399[^\n]", cmd, arg) < 1) return;
      uint64_t frame = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED);
@@ -490,8 +517,8 @@ index f5cd4ed..4aa7e78 100644
 +    } else if (!strcmp(cmd, "shot") && *arg) {
          rt_shot_request(arg);
          rt_log("ctl: shot %s queued at frame %llu", arg, (unsigned long long)frame);
-     } else if (!strcmp(cmd, "screen") && *arg) {
-@@ -109,7 +112,7 @@ void ctl_run(char *line) {
+     } else if (!strcmp(cmd, "set") && *arg) {   // a live setting, as the menu sets it (not saved to mkw.ini)
+@@ -135,7 +138,7 @@ void ctl_run(char *line) {
      }
  }
  
@@ -500,7 +527,7 @@ index f5cd4ed..4aa7e78 100644
  #include <sys/stat.h>
  
  static void ctl_main(void *arg) {
-@@ -133,6 +136,32 @@ void ctl_init(void) {
+@@ -159,6 +162,32 @@ void ctl_init(void) {
      if (!plat_thread_spawn(ctl_main, (void *)path, "ctl", 0)) rt_log("ctl: cannot start its thread");
      else rt_log("ctl: reading commands from %s", path);
  }
@@ -567,13 +594,14 @@ index f0e794a..7cc63a8 100644
  #endif
      blocks_c(h, p, n);
 diff --git a/runtime/core/boot/README.md b/runtime/core/boot/README.md
-index 6395377..9dd1822 100644
+index 246871b..80bd609 100644
 --- a/runtime/core/boot/README.md
 +++ b/runtime/core/boot/README.md
-@@ -10,3 +10,12 @@ Boot: the program entry point, the game code tables, module loading, patches and
- | `game.c` | MKW's own: the game clock (`frame_step_*`, counts presents; totk-pc-recomp takes it from `frame_rate.c` and its patches); the world clock of A/B runs (`MKW_AB`) counts from the `MKW_SEQ_UNTIL` event; the frame rate setting (`MKW_FPS` auto/30/60: the game's fixed present interval, through its frame object's vtable slot) and the `game: speed` line every 5 s |
+@@ -13,3 +13,13 @@ Boot: the program entry point, the game code tables, module loading, patches and
+ | `frame_jit.c` | `MKW_LOW_LATENCY`: the game's acquire waits until the next display slot minus the frame's measured work (acquire to GPU done, 90th percentile, plus a margin), so the frame and its controller read are younger on screen |
  | `version.c`, `version.h` | The fixed guest addresses of each game version (1.0.0, 1.8.0), chosen by `RtGame.version`: the frame update, the game clock, zstd, the NVN2 proc table, the boot checkpoint and `init_array` sizes; a field at 0 turns its feature off |
- | `patches.c` | Patches by address |
+ | `patches.c` | Patches by address; opt-in tall Window (1.0.0 and 1.8.0) requires the regenerated `vertplus` set (old tables keep 16:9), preserves horizontal FOV and fits controls, while full-canvas backdrops, character/kart capture masks and the cup side backdrop cover the output; on 1.8.0 the `display` set gives the picture the output's shape (rows on taller outputs, columns on wider ones); on a wider 1.8.0 output the character/kart lists' capture masks sample the backdrop under themselves and the race and pause prompts keep their 16:9 shape in their corners (`host_pane_matrix`); with `MKW_HUD_POSITION=edges` (opt-in) the HUD and the menus' chrome go to the screen edges, by layout (`build/obj/rt/hud_layouts.h`, which `tools/build/build.py` writes from `recomp/hud_layouts.py`'s table) |
++| `patches.c` | Patches by address |
 +
 +PS5 profile-lock failures use the existing fatal/log path. The desktop SDL
 +message box is excluded on that target; lock enforcement still applies.
@@ -584,7 +612,7 @@ index 6395377..9dd1822 100644
 +linked. It is packaged by `tools/build/ps5_boot.py --link` using the foundation's
 +canonical RADV link/sign/import-audit path.
 diff --git a/runtime/core/boot/boot.c b/runtime/core/boot/boot.c
-index fe433ba..1dd91af 100644
+index 4c9c2ce..a909557 100644
 --- a/runtime/core/boot/boot.c
 +++ b/runtime/core/boot/boot.c
 @@ -6,7 +6,9 @@
@@ -597,7 +625,7 @@ index fe433ba..1dd91af 100644
  #include <stdio.h>
  #include <stdlib.h>
  #include <string.h>
-@@ -359,12 +361,23 @@ static void lock_profile(void) {
+@@ -375,12 +377,23 @@ static void lock_profile(void) {
      snprintf(p, sizeof p, "%s/instance.lock", rt_config()->profile_base);
      if (plat_file_lock(p)) return;   // -1 (cannot open it): played as before, without the guard
      const char *msg = "Mario Kart World is already running from this folder. Close it before starting it again.";
@@ -619,14 +647,14 @@ index fe433ba..1dd91af 100644
 +    }
 +#endif
      check_npdm();
+     presence_start();   // core/presence: Discord Rich Presence, on a thread of its own
      if (!rt_config()->shot) vk_pipeline_async_enable();   // a --shot image must not depend on build timing
-     // Shaders and pipelines recorded in earlier runs are made ready while the modules load; the guest waits for them.
 diff --git a/runtime/core/boot/game.c b/runtime/core/boot/game.c
-index 70ee034..21486aa 100644
+index 218e470..43112dc 100644
 --- a/runtime/core/boot/game.c
 +++ b/runtime/core/boot/game.c
-@@ -16,6 +16,11 @@
- #include "cfg.h"
+@@ -21,6 +21,11 @@
+ #include "hacks.h"
  #include "host.h"
  #include "version.h"
 +#include "kernel_startup.h"
@@ -636,10 +664,10 @@ index 70ee034..21486aa 100644
 +#endif
  
  #define FRAME_FIXED 0x210                         // frame object: fixed interval, 0 = the game picks
- #define FRAME_HOST 0xfa0                          // patch page offset of host_frame_update (patches.c)
-@@ -48,6 +53,35 @@ static void speed_note(int interval) {
+ #define FRAME_INTERVAL 0x214                      // frame object: the interval of this frame
+@@ -85,6 +90,35 @@ static void speed_note(int interval) {
      rt_log("game: speed %.2fx over %.1f s (%u frames, %u interval changes, MKW_FPS %s)",
-            (double)(clock - sp.clock0) / 60.0 / real, real, sp.frames, sp.changes, cfg_value("MKW_FPS"));
+            (double)(clock - sp.clock0) / frame_logic_hz() / real, real, sp.frames, sp.changes, cfg_value("MKW_FPS"));
      sp.t0 = now, sp.clock0 = clock, sp.frames = sp.changes = 0;
 +#ifdef __PROSPERO__
 +    {   // MKWBOOT-028: the console ran out of memory in earlier builds with no figures in the log
@@ -672,12 +700,22 @@ index 70ee034..21486aa 100644
 +#endif
  }
  
- void frame_step_present(uint64_t display_ns, int interval) {
+ static _Atomic int last_interval = 1;
 diff --git a/runtime/core/boot/main.c b/runtime/core/boot/main.c
-index 984c051..7006ecc 100644
+index d030c8b..3b6f26b 100644
 --- a/runtime/core/boot/main.c
 +++ b/runtime/core/boot/main.c
-@@ -64,8 +64,12 @@ static size_t g_log_early_n;
+@@ -25,7 +25,9 @@
+ #include <asm/hwcap.h>
+ #include <sys/auxv.h>
+ #endif
++#ifndef __PROSPERO__
+ #include <SDL3/SDL_messagebox.h>
++#endif
+ #include <limits.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -66,8 +68,12 @@ static size_t g_log_early_n;
  static uint64_t g_log_bytes;
  
  void rt_log_raw(const char *p, size_t n) {
@@ -691,8 +729,29 @@ index 984c051..7006ecc 100644
      if (state == LOG_EARLY) {
          size_t at = __atomic_fetch_add(&g_log_early_n, n, __ATOMIC_RELAXED);
          if (at + n <= sizeof g_log_early) memcpy(g_log_early + at, p, n);
-@@ -533,6 +537,10 @@ static int want_launcher(int argc, char **argv) {
+@@ -239,7 +245,9 @@ __attribute__((constructor(101), target("arch=x86-64"))) static void require_x86
+     if (CPU_OK()) return;
+     const char *msg = CPU_MSG;
+     fprintf(stderr, "cpu: %s\n", msg);
++#ifndef __PROSPERO__
+     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "mkw-recomp", msg, NULL);
++#endif
+     _Exit(3);
  }
+ #endif
+@@ -592,6 +600,7 @@ static int want_launcher(int argc, char **argv) {
+     return asked || !rt_game_builtin();
+ }
+ 
++#ifndef __PROSPERO__
+ static const char *launcher_romfs_arg;
+ 
+ // Called again by the launcher after setup updates ROMFS: importing and merging must see the path the next game
+@@ -603,8 +612,13 @@ void launcher_refresh_romfs(void) {
+                               rt_default_romfs);
+     launcher_set_romfs(romfs ? romfs : "");
+ }
++#endif
  
  static int run_launcher(int argc, char **argv) {
 +#ifdef __PROSPERO__
@@ -700,9 +759,9 @@ index 984c051..7006ecc 100644
 +    rt_fatal("PS5: direct game startup only; the desktop launcher is unavailable");
 +#else
      cfg_init();   // mkw.ini: the settings pages read and write it
-     // the Mods page merges against the same romfs the game will boot: argv wins, else MKW_ROMFS / mkw.ini,
-     // else the selected installation, else the baked-in default (nup packages cannot merge: no loose files)
-@@ -567,6 +575,7 @@ static int run_launcher(int argc, char **argv) {
+     // logs/launcher.log, with the crash handler: a start screen that stopped before its window showed left nothing on
+     // disk, as the game's mkw.log only opens in the game's own process (#634, 19/11/2026: "didnt find any log"). Its
+@@ -641,6 +655,7 @@ static int run_launcher(int argc, char **argv) {
      if (launcher_run() != LAUNCHER_PLAY) return 0;
      plat_setenv("MKW_LAUNCHED", "1");
      plat_reexec();
@@ -710,7 +769,7 @@ index 984c051..7006ecc 100644
  }
  
  int main(int argc, char **argv) {
-@@ -578,6 +587,9 @@ int main(int argc, char **argv) {
+@@ -652,6 +667,9 @@ int main(int argc, char **argv) {
      // MKW_ALLOW_PTRACE=1: let a debugger attach (tools/run/stacks.py) under yama ptrace_scope 1, without root.
      const char *pt = getenv("MKW_ALLOW_PTRACE");
      if (pt && !strcmp(pt, "1")) prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
@@ -720,17 +779,17 @@ index 984c051..7006ecc 100644
  #endif
      mem_init();   // first: claim the guest address space before anything else can land there; reads mkw.ini
      setvbuf(stdout, NULL, _IONBF, 0);
-@@ -627,6 +639,9 @@ int main(int argc, char **argv) {
+@@ -725,6 +743,9 @@ int main(int argc, char **argv) {
+         plat_setenv("MKW_MODS", list);
      }
-     if (cfg.shot && !cfg.seconds) return usage(argv[0]);
      if (cfg.seconds && mode) return usage(argv[0]);
 +#ifdef __PROSPERO__
 +    { void ps5_early_mark(const char *); ps5_early_mark("main: log_open"); }
 +#endif
-     log_open(!mode);
-     // the player the launcher picked (core/base/players.h): its account and save; the lock stays on the folder
-     static char player_profile[PLAT_PATH_MAX * 2];
-@@ -638,6 +653,10 @@ int main(int argc, char **argv) {
+     // the setup's warm step (--prewarm) keeps its log too, as logs/warm.log (MKW_LOG_NAME): until 18/11/2026 it went
+     // nowhere, and prepare.py drops its output, so a prewarm that failed on a player's PC left no trace. Only with its
+     // own name: a --prewarm by hand must not rotate the player's mkw.log
+@@ -740,6 +761,10 @@ int main(int argc, char **argv) {
          rt_boot();
          return 0;
      }
@@ -741,8 +800,8 @@ index 984c051..7006ecc 100644
      if (!strcmp(mode, "--selftest")) return selftest();
      if (!strcmp(mode, "--probe-loader")) return probe_loader();
      if (!strcmp(mode, "--probe-cfg")) return probe_cfg();
-@@ -659,4 +678,5 @@ int main(int argc, char **argv) {
-     if (!strcmp(mode, "--texpre")) return vk_texpre_encode();
+@@ -769,4 +794,5 @@ int main(int argc, char **argv) {
+     if (!strcmp(mode, "--prewarm")) return vk_pipeline_prewarm_main();
      if (!strcmp(mode, "--boot")) { cfg.boot = 1; rt_boot(); return 0; }
      return usage(argv[0]);
 +#endif
@@ -812,7 +871,7 @@ index 776b01e..9449a1c 100644
 +
 +`kernel_startup.h` declares bounded read-only startup snapshots implemented in kernel_diag.c: try-lock, copy thread state, sample only core owners with the existing interrupt protocol, resume before formatting/logging. They do not require a presented game frame.
 diff --git a/runtime/core/kernel/kernel_diag.c b/runtime/core/kernel/kernel_diag.c
-index 15eac0b..c1baaf1 100644
+index 16b5f7d..3fd4417 100644
 --- a/runtime/core/kernel/kernel_diag.c
 +++ b/runtime/core/kernel/kernel_diag.c
 @@ -7,6 +7,7 @@
@@ -859,7 +918,7 @@ index 15eac0b..c1baaf1 100644
      for (int k = 0; k < 2; k++) {
          const WaitRec *src = k ? g_mw : g_rw;
          for (int i = 0; i < RW_N && src[i].ns; i++)
-@@ -441,4 +457,202 @@ void kern_sched_report(uint64_t frame) {
+@@ -441,6 +457,204 @@ void kern_sched_report(uint64_t frame) {
              rt_log("sched: %s wait %d: %s on %s%#llx%s: %.1f%%", k ? "main" : "render", j + 1, s_name[rw[k][j].st],
                     rw[k][j].st == S_HOST ? "exe+" : "", (unsigned long long)rw[k][j].obj, by, 100.0 * rw[k][j].ns / span);
          }
@@ -1062,8 +1121,10 @@ index 15eac0b..c1baaf1 100644
 +#endif
 +    last_ns = now, last_proc = proc;
  }
+ 
+ // ctl `threads` (any thread, no lock: a snapshot for a hung run, where every guest thread sleeps and ptrace is not
 diff --git a/runtime/core/kernel/kernel_preempt.c b/runtime/core/kernel/kernel_preempt.c
-index f1a0007..8382f6e 100644
+index e5bc978..cc10e14 100644
 --- a/runtime/core/kernel/kernel_preempt.c
 +++ b/runtime/core/kernel/kernel_preempt.c
 @@ -54,7 +54,16 @@ void ap_init(void) {
@@ -1101,10 +1162,10 @@ index 0000000..c0bdfde
 +}
 +#endif
 diff --git a/runtime/core/kernel/kernel_svc.c b/runtime/core/kernel/kernel_svc.c
-index c1e3979..7c8be35 100644
+index 03aa3b7..069afe1 100644
 --- a/runtime/core/kernel/kernel_svc.c
 +++ b/runtime/core/kernel/kernel_svc.c
-@@ -94,7 +94,11 @@ int kern_svc(Cpu *c, uint32_t imm) {
+@@ -95,7 +95,11 @@ int kern_svc(Cpu *c, uint32_t imm) {
          lock();
          thr_link(t);
          unlock();
@@ -1117,7 +1178,7 @@ index c1e3979..7c8be35 100644
          if (rt_trace & RT_TRACE_SVC) {
              char d[128];
              rt_log("CreateThread %#x entry %s stack %#llx prio %d core %d", t->handle,
-@@ -149,6 +153,14 @@ int kern_svc(Cpu *c, uint32_t imm) {
+@@ -150,6 +154,14 @@ int kern_svc(Cpu *c, uint32_t imm) {
              return 1;
          }
          // Yield: hand the core to a waiting thread of equal or better priority.
@@ -1132,7 +1193,7 @@ index c1e3979..7c8be35 100644
          lock();
          int give = 0;
          int tp = prio_of(t);
-@@ -159,7 +171,7 @@ int kern_svc(Cpu *c, uint32_t imm) {
+@@ -160,7 +172,7 @@ int kern_svc(Cpu *c, uint32_t imm) {
              core_take(t);
          }
          unlock();
@@ -1142,10 +1203,10 @@ index c1e3979..7c8be35 100644
      }
      case 0x0C: {   // GetThreadPriority(w1 handle -> w1)
 diff --git a/runtime/core/memory/README.md b/runtime/core/memory/README.md
-index 1083555..e294a42 100644
+index 63e6359..f46c242 100644
 --- a/runtime/core/memory/README.md
 +++ b/runtime/core/memory/README.md
-@@ -9,3 +9,8 @@ Guest address space, write tracking and read traps.
+@@ -10,3 +10,8 @@ Guest address space, write tracking and read traps.
  | `memory_btrap.c` | Base traps (`trapped == 3`): game pages kept read-only that serve as the shadow's merge base until something writes them; before that, the hook copies the page to the base (`vk_mem_lazy.c`). Linux only |
  | `memory_early_diag.c` | Diagnostics of `MKW_EARLY_READ_DRY`: events with the game's stack and a census of laps with the next writer running |
  | `memory_int.h` | What `memory.c` shares with `memory_early.c` (the trap map and its lock) |
@@ -1155,7 +1216,7 @@ index 1083555..e294a42 100644
 +checked CPU accesses still enforce logical permissions. Full raw-pointer and
 +CPU/GPU coherence coverage has not yet been demonstrated on the console.
 diff --git a/runtime/core/memory/memory.c b/runtime/core/memory/memory.c
-index a7d8fe7..f013543 100644
+index c8a6c9b..f2157ce 100644
 --- a/runtime/core/memory/memory.c
 +++ b/runtime/core/memory/memory.c
 @@ -8,6 +8,9 @@
@@ -1168,7 +1229,7 @@ index a7d8fe7..f013543 100644
  #include <stdio.h>
  #include <stdlib.h>
  #include <string.h>
-@@ -341,6 +344,10 @@ static void commit(uint64_t a, uint64_t n, const char *what) {
+@@ -346,6 +349,10 @@ static void commit(uint64_t a, uint64_t n, const char *what) {
      thaw_range_locked(a, n, 3);
      int ok = !n || plat_mem_commit(a, n);
      plat_mutex_unlock(&frz_lock);
@@ -1179,7 +1240,7 @@ index a7d8fe7..f013543 100644
      if (!ok) rt_fatal("memory: commit %s %#llx+%#llx failed", what, (unsigned long long)a, (unsigned long long)n);
  }
  
-@@ -453,6 +460,12 @@ void mem_init(void) {
+@@ -461,6 +468,12 @@ void mem_init(void) {
      const RtGame *g = rt_game();
      mods_lo = g->modules[0].base;
      mods_hi = align_up(g->modules[g->nmodules - 1].base + g->modules[g->nmodules - 1].size, 0x10000);
@@ -1192,20 +1253,20 @@ index a7d8fe7..f013543 100644
      if (mods_hi > RT_KERNEL_BASE) rt_fatal("memory: modules end at %#llx, inside the kernel region",
                                             (unsigned long long)mods_hi);
      if (!reserve_at(mods_lo, mods_hi - mods_lo, 0)) reexec_or_fail("the module window");
-@@ -485,7 +498,7 @@ void mem_init(void) {
-         .pool = pool ? strtoull(pool, NULL, 0) : DEFAULT_POOL,
-     };
-     if (!L.pool) rt_fatal("memory: MKW_APP_POOL is 0");
+@@ -501,7 +514,7 @@ void mem_init(void) {
+         snprintf(name, sizeof name, "mkw guest %s", names[i]);
+         plat_mem_name((void *)(uintptr_t)where[i].base, where[i].size, name);
+     }
 -#ifdef _WIN32
 +#if defined(_WIN32) || defined(__PROSPERO__)
      const char *lz = cfg_get("MKW_LAZY_COMMIT");
      lazy = !lz || atoi(lz) != 0;
  #endif
 diff --git a/runtime/cpu/README.md b/runtime/cpu/README.md
-index 0d8965d..3ec7cef 100644
+index 017de52..9665ca8 100644
 --- a/runtime/cpu/README.md
 +++ b/runtime/cpu/README.md
-@@ -2,10 +2,20 @@
+@@ -2,7 +2,8 @@
  
  | File | What it is |
  |---|---|
@@ -1214,7 +1275,8 @@ index 0d8965d..3ec7cef 100644
 +| `atomic.h` | Atomic selection macros used by newly generated code and exclusive/minmax helpers: native builtins by default, scoped checked hooks under `MKW_CHECKED_MEMORY` |
  | `simd.h`, `simd_fp.h` | AArch64 NEON and floating point in portable C |
  | `dispatch.c`, `dispatch.h` | `rt_dispatch`: indirect calls through an address table |
- | `sjlj.c` | Guest `setjmp`/`longjmp`: a setjmp caller's body runs under a host setjmp point, and a dispatch into the middle of a live one (the guest longjmp's `BR x30`) jumps back to it |
+ | `fma.c` | Correctly rounded `fma`/`fmaf` (totk-pc-recomp, from musl) for game code built for x86-64-v2 (`MKW_SETUP_CPU=v2`, CPUs without FMA); empty in a v3 build |
+@@ -10,3 +11,12 @@
  | `hostfn.c` | Host functions at guest addresses (`HOST_OVERRIDE`): this is how an `nn::*` function is replaced by name; `HOST_FUNCTION` gives an address to a function without a symbol (virtual tables of objects the host hands to the game). `MKW_HOST_TIME=1`: time each one keeps a game thread stopped (render and the rest), every 600 frames |
  
  From totk-pc-recomp (see `../README.md`).
@@ -1387,10 +1449,10 @@ index 0c71f12..d7a5e4d 100644
          return o;                                                                          \
      }
 diff --git a/runtime/cpu/dispatch.c b/runtime/cpu/dispatch.c
-index 7347165..a1f40d2 100644
+index baf17bc..396ba53 100644
 --- a/runtime/cpu/dispatch.c
 +++ b/runtime/cpu/dispatch.c
-@@ -42,6 +42,13 @@ static uint64_t g_nhost;
+@@ -49,6 +49,13 @@ static int g_novr, g_cap_ovr;
  
  void rt_fatal(const char *fmt, ...) {
      va_list ap;
@@ -1404,7 +1466,7 @@ index 7347165..a1f40d2 100644
      va_start(ap, fmt);
      rt_log_raw("FATAL: ", 7);
      rt_vlogf(fmt, ap);
-@@ -56,7 +63,11 @@ void rt_fatal(const char *fmt, ...) {
+@@ -63,7 +70,11 @@ void rt_fatal(const char *fmt, ...) {
             prv / 1048576.0, used, total);
      fflush(stdout);
      fflush(stderr);
@@ -1438,11 +1500,11 @@ index be6fd5d..5a17d3f 100644
  #define CVT __builtin_convertvector
  
 diff --git a/runtime/gfx/nvn/api/README.md b/runtime/gfx/nvn/api/README.md
-index b8f329d..523bc32 100644
+index 8cb0cf2..dd20e25 100644
 --- a/runtime/gfx/nvn/api/README.md
 +++ b/runtime/gfx/nvn/api/README.md
-@@ -12,3 +12,9 @@ operation logs for the back end (`../../vk/`).
- | `nvn_qorder.c` | The work of the game's two queues ordered by their event waits (`MKW_QUEUE_WAITS`, off: census); submits held in place in the replay queue |
+@@ -13,3 +13,9 @@ operation logs for the back end (`../../vk/`).
+ | `nvn_dstk.c` | Diagnosis: the draws of the next frames counted by guest call stack and depth target (`ctl drawstacks`) |
  | `nvn_ext.c` | Functions that only report saved state, debug metadata and hints |
  | `nvn_obj.h`, `nvn_hmap.h`, `nvn_pool_index.h` | Object and record formats; the replay's hash table and pools sorted by address |
 +
@@ -1452,7 +1514,7 @@ index b8f329d..523bc32 100644
 +
 +PS5 memcmp and memset overrides avoid lifted scalar memory checks for each byte/word during resource lookup. Comparisons retain GPU readback ordering for large reads; fills retain logical validation and dirty-page tracking. Other platforms keep their current dispatch.
 diff --git a/runtime/gfx/nvn/api/nvn_api.h b/runtime/gfx/nvn/api/nvn_api.h
-index 086df4b..8ea011f 100644
+index b443723..ec4903d 100644
 --- a/runtime/gfx/nvn/api/nvn_api.h
 +++ b/runtime/gfx/nvn/api/nvn_api.h
 @@ -17,6 +17,10 @@
@@ -1467,10 +1529,10 @@ index 086df4b..8ea011f 100644
  #define NVN_LOG(...) do { if (rt_trace & RT_TRACE_GFX) rt_log("nvn: " __VA_ARGS__); } while (0)   // MKW_TRACE=gfx
  // A wait for the GPU, the display or another thread gives the virtual core up until the end of the enclosing scope.
 diff --git a/runtime/gfx/nvn/api/nvn_api_core.c b/runtime/gfx/nvn/api/nvn_api_core.c
-index 435e394..e462999 100644
+index b1a90f3..199b2d0 100644
 --- a/runtime/gfx/nvn/api/nvn_api_core.c
 +++ b/runtime/gfx/nvn/api/nvn_api_core.c
-@@ -17,6 +17,9 @@
+@@ -18,6 +18,9 @@
  #include "nvn_pool_index.h"
  #include "platform/platform.h"
  #include "version.h"
@@ -1480,7 +1542,7 @@ index 435e394..e462999 100644
  
  #define DEV_MAGIC MAGIC('D', 'E', 'V', 0)
  #define QUEUE_MAGIC MAGIC('Q', 'U', 'E', 'U')
-@@ -61,11 +64,36 @@ void nvn_guest_written(uint64_t addr, uint64_t size) {
+@@ -62,11 +65,36 @@ void nvn_guest_written(uint64_t addr, uint64_t size) {
  static void ov_memcpy(Cpu *c) {
      uint64_t dst = arg_x(c, 0), src = arg_x(c, 1), n = arg_x(c, 2);
      if (n >= 1024) gfx_backend()->guest_read(src, n);
@@ -1517,7 +1579,7 @@ index 435e394..e462999 100644
  __attribute__((weak)) void nvn_submit_prepare(const uint64_t *handles, int n) { (void)handles, (void)n; }
  __attribute__((weak)) void nvn_event_cpu_signal(volatile uint32_t *val) { (void)val; }
  __attribute__((weak)) void nvn_submit_prepare_async(const uint64_t *handles, uint64_t *out, int n) {
-@@ -461,7 +489,10 @@ NVN_API(nvnBufferInitialize) {
+@@ -492,7 +520,10 @@ NVN_API(nvnBufferInitialize) {
      ret_x(c, 1);
  }
  // void nvnBufferFinalize(NVNbuffer *b)
@@ -1529,7 +1591,7 @@ index 435e394..e462999 100644
  static uint64_t buf_address(const buf_t *o) { return o->pool && o->pool->mem ? (uintptr_t)o->pool->mem + (uint64_t)o->off : 0; }
  // void *nvnBufferMap(const NVNbuffer *b): NULL in a GPU-window pool, which has no CPU view
  NVN_API(nvnBufferMap) {
-@@ -497,7 +528,10 @@ NVN_API(nvnSyncInitialize) {
+@@ -528,7 +559,10 @@ NVN_API(nvnSyncInitialize) {
      ret_x(c, 1);
  }
  // void nvnSyncFinalize(NVNsync *s)
@@ -1541,7 +1603,7 @@ index 435e394..e462999 100644
  // void nvnQueueFenceSync(NVNqueue *q, NVNsync *s, NVNsyncCondition condition, int flags): "every command submitted to
  // the queue so far has completed"
  NVN_API(nvnQueueFenceSync) {
-@@ -644,7 +678,10 @@ NVN_API(nvnEventInitialize) {
+@@ -675,7 +709,10 @@ NVN_API(nvnEventInitialize) {
      ret_x(c, 1);
  }
  // void nvnEventFinalize(NVNevent *e)
@@ -1553,7 +1615,7 @@ index 435e394..e462999 100644
  // The fence of the newest submit that signals each event (open addressing by value address), set at the submit. On the
  // console the GPU writes an event soon after the submit; here at the fence, about a frame later, so a game that reads
  // an event to learn how far the GPU got sees it behind (hypothesis for the dark trees, 06/11/2026).
-@@ -750,7 +787,10 @@ NVN_API(nvnQueueInitialize) {
+@@ -781,7 +818,10 @@ NVN_API(nvnQueueInitialize) {
      ret_x(c, 1);
  }
  // void nvnQueueFinalize(NVNqueue *q)
@@ -1566,7 +1628,7 @@ index 435e394..e462999 100644
  NVN_API(nvnQueueGetError) {
      NVNqueueErrorInfo *info = arg_p(c, 1);
 diff --git a/runtime/gfx/nvn/api/nvn_api_obj.c b/runtime/gfx/nvn/api/nvn_api_obj.c
-index c722bed..42144fb 100644
+index 2e7e591..4a43f5a 100644
 --- a/runtime/gfx/nvn/api/nvn_api_obj.c
 +++ b/runtime/gfx/nvn/api/nvn_api_obj.c
 @@ -23,6 +23,15 @@
@@ -1614,24 +1676,25 @@ index c722bed..42144fb 100644
      o->magic = 0;
  }
 diff --git a/runtime/gfx/nvn/host/README.md b/runtime/gfx/nvn/host/README.md
-index 5e0d884..2063503 100644
+index 5690ac4..66edace 100644
 --- a/runtime/gfx/nvn/host/README.md
 +++ b/runtime/gfx/nvn/host/README.md
-@@ -7,9 +7,12 @@ the texts the host shows.
- |---|---|
- | `gfx.h`, `gfx_null.c` | Graphics layer interface, null back end (no GPU) and `gfx_backend`, which picks the back end and wraps it with the capture of `../cap/` (`MKW_CAPTURE`) |
- | `gfx_present.c`, `gfx_wsys.h`, `gfx_window_sdl.c` | Swapchain, present and vsync; SDL3 window |
+@@ -14,7 +14,13 @@ the texts the host shows.
+ | `gfx_shader_int.c` | A prepared shader's variants with integer inputs, integer outputs or integer images; failed integer-image conversions name the program and reason and save their input with `MKW_SPIRV_INT_DUMP` |
+ | `gfx_shader_internal.h` | The `GfxShader` struct and the memory cache, shared by `gfx_shader.c`, `gfx_shader_int.c` and `gfx_shader_refl.c` |
+ | `gfx_shader_refl.c` | Reflection of a prepared shader: its `.res.json` into resource arrays, specialization words and flags, and its SPIR-V's interface Locations and workgroup size |
 +| `gfx_window_ps5.c` | PS5 `VK_KHR_display` backend for the same Vulkan present path: enumerates modes/planes, validates capabilities, checks real queue presentation support and creates the native display surface. No separate renderer or game visualization. Startup/lifecycle/input integration and console validation remain pending; desktop builds exclude this file |
- | `gfx_hdr.c` | HDR output (`MKW_HDR` auto/off): what nn::vi tells the game about the display's HDR (`MKW_HDR_FAKE`), the HDR10 swapchain format and metadata, and 10-bit PQ pixels to sRGB bytes for shots, captures and thumbnails |
- | `gfx_shader.c` | Loads MKW's prepared SPIR-V (`prepared_get`, key `nvn2_program_key`), variants with integer inputs, integer outputs or integer images and reflection (`.res.json` and the SPIR-V itself); loads the pipeline prewarm shaders in parallel (`gfx_shader_prewarm`) |
++| `gfx_hdr.c` | HDR output (`MKW_HDR` auto/off): what nn::vi tells the game about the display's HDR (`MKW_HDR_FAKE`), the HDR10 swapchain format and metadata, and 10-bit PQ pixels to sRGB bytes for shots, captures and thumbnails |
++| `gfx_shader.c` | Loads MKW's prepared SPIR-V (`prepared_get`, key `nvn2_program_key`), variants with integer inputs, integer outputs or integer images and reflection (`.res.json` and the SPIR-V itself); loads the pipeline prewarm shaders in parallel (`gfx_shader_prewarm`) |
  | `gfx_spirv_io.c` | The integer-inputs patch of a vertex shader and the integer-outputs patch of a fragment shader: the inputs whose attribute format, or the outputs whose colour target, is UINT/SINT become u/ivec4, their loads and stores bitcast (issue #64) |
- | `gfx_spirv_img.c` | The integer-images patch of a compute program: the textures and storage images whose bound view is UINT/SINT become integer images, their reads and writes bitcast (VUID format-07753, issue #64) |
+ | `gfx_spirv_img.c` | The integer-images patch of a compute program: the textures and storage images whose bound view is UINT/SINT become integer images, including separate image/sampler construction, their reads and writes bitcast (VUID format-07753, issue #64); failures return a diagnostic reason |
  | `ui_text.c`, `ui_text.h` | Texts the host shows the player (software keyboard, menu and start screen; menu in English, Russian and Spanish) |
- | `ui_text_cat.h` | What every language's catalog shares (the language names, the arrays' declarations); the catalogs themselves are generated from `i18n/*.po` |
+ | `ui_text_cat.h` | What every language's catalog shares (the language names, the arrays' declarations); the catalogs themselves are generated from `i18n/ui/*.po` |
++| `ui_text_cat.h` | What every language's catalog shares (the language names, the arrays' declarations); the catalogs themselves are generated from `i18n/*.po` |
 +
 +PS5 starts a startup display updater under the existing present/queue locks. Deferred swapchain images retain a game/startup tag; a successful game present ends startup activity before another startup tick can cover it. Device release stops/joins the updater before destroying resources.
 diff --git a/runtime/gfx/nvn/host/gfx_present.c b/runtime/gfx/nvn/host/gfx_present.c
-index cad93ad..9078f2b 100644
+index 995dfd9..34db6ef 100644
 --- a/runtime/gfx/nvn/host/gfx_present.c
 +++ b/runtime/gfx/nvn/host/gfx_present.c
 @@ -18,6 +18,10 @@
@@ -1645,7 +1708,7 @@ index cad93ad..9078f2b 100644
  #include "flight.h"
  #include "fs.h"
  #include "gfx.h"
-@@ -126,6 +130,10 @@ static int g_cap_w, g_cap_h, g_cap_valid;
+@@ -127,6 +131,10 @@ static int g_cap_w, g_cap_h, g_cap_valid;
  // oldest. More than one only with frame generation (vk_present_blit_ahead).
  static uint32_t g_flip_q[MAX_IMAGES];
  static int g_flip_n;
@@ -1656,9 +1719,9 @@ index cad93ad..9078f2b 100644
  static float g_aspect;           // gfx_aspect_set: the ultrawide output's aspect (MKW_ASPECT), 0 at 16:9
  void gfx_aspect_set(float a) { g_aspect = a; }
  static int g_frames = 2;         // slots in use (create_swapchain): 2, FRAMES with frame generation
-@@ -273,8 +281,14 @@ const char *gfx_window_present_mode(void) { return __atomic_load_n(&g_present_go
- static void flip_one_locked(void) {
-     if (!g_flip_n) return;
+@@ -274,8 +282,14 @@ const char *gfx_window_present_mode(void) { return __atomic_load_n(&g_present_go
+ static uint64_t flip_one_locked(void) {
+     if (!g_flip_n) return 0;
      uint32_t idx = g_flip_q[0];
 +#ifdef __PROSPERO__
 +    int game_image = g_flip_game[0];
@@ -1668,10 +1731,10 @@ index cad93ad..9078f2b 100644
 +#ifdef __PROSPERO__
 +    memmove(g_flip_game, g_flip_game + 1, (size_t)g_flip_n);
 +#endif
-     if (!g_sc) return;
-     VkPresentInfoKHR pi = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .waitSemaphoreCount = 1,
-                            .pWaitSemaphores = &g_render_done[idx], .swapchainCount = 1, .pSwapchains = &g_sc,
-@@ -283,6 +297,13 @@ static void flip_one_locked(void) {
+     if (!g_sc) return 0;
+     uint64_t id = vk_lat_next_id();
+     VkPresentIdKHR pid = {.sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR, .swapchainCount = 1, .pPresentIds = &id};
+@@ -286,6 +300,13 @@ static uint64_t flip_one_locked(void) {
      VkResult r = vkQueuePresentKHR(vk_ctx()->gfx_queue, &pi);
      vk_queue_unlock();
      if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) plat_xchg32(&g_dirty, 1);
@@ -1682,10 +1745,10 @@ index cad93ad..9078f2b 100644
 +        rt_log("gfx: first game image presented; startup picture stays until the textures are loaded");
 +    }
 +#endif
+     return id;
  }
  
- // Queues every waiting present (g_pl held). A swapchain rebuild and the next blit (not an ahead one) flush them first;
-@@ -600,6 +621,12 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
+@@ -613,6 +634,12 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
      VkCtx *c = vk_ctx();
      plat_rmutex_lock(&g_pl);
      if (defer != 2 || g_flip_n >= g_ahead) flip_locked();   // (no more acquired images than the swapchain spares)
@@ -1698,7 +1761,7 @@ index cad93ad..9078f2b 100644
      if (gfx_hdr_cfg_changed()) plat_xchg32(&g_dirty, 1);   // MKW_HDR switched in the menu: HDR10 or SDR from now on
      if (!g_sc || plat_cas32(&g_dirty, 0, 0)) {
          if (!wsys_minimized() && !create_swapchain() && !g_sc) goto out;
-@@ -650,7 +677,11 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
+@@ -667,7 +694,11 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
      MenuTarget mt = {c->instance, c->phys, c->device, c->gfx_family, c->gfx_queue,
                       g_sc_hdr ? VK_FORMAT_R8G8B8A8_UNORM : g_sc_fmt, g_sc_ext.width,
                       g_sc_ext.height, cw, ch, g_scaler};
@@ -1711,7 +1774,7 @@ index cad93ad..9078f2b 100644
                    menu_overlay_frame(__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED), &mt, &menu_shot);
      if (!menu_shot && __atomic_exchange_n(&g_screen_on, 0, __ATOMIC_ACQ_REL)) menu_shot = g_screen_path;
      int cap = src && (g_capture || menu_shot) && ensure_capture_buffer();
-@@ -760,6 +791,9 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
+@@ -777,6 +808,9 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
      r = vkQueueSubmit2(c->gfx_queue, 1, &si, g_fence[slot]);
      vk_queue_unlock();
      if (r == VK_SUCCESS) {
@@ -1721,7 +1784,7 @@ index cad93ad..9078f2b 100644
          g_flip_q[g_flip_n++] = idx;   // (at most g_ahead: flushed above)
          if (!defer) flip_locked();
      } else {
-@@ -790,10 +824,37 @@ out:
+@@ -807,10 +841,37 @@ out:
  
  // The window at boot, black until the game's first image: a first frame that waits for its pipelines left players with
  // no window at all, only mkw.exe in the Task Manager (issue #36). Not with MKW_GPU=null.
@@ -1759,7 +1822,7 @@ index cad93ad..9078f2b 100644
  }
  
  void vk_present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h, const int crop[4]) {
-@@ -826,6 +887,10 @@ void gfx_window_resize(int cw, int chh) {
+@@ -844,6 +905,10 @@ void gfx_window_resize(int cw, int chh) {
  
  // Called by vk_shutdown before the device goes away; the window and its thread stay.
  void gfx_window_release_vk(void) {
@@ -1910,14 +1973,13 @@ index 0000000..569b346
 +void wsys_probe_escape(void) {}
 +int wsys_probe_click(int where) { (void)where; return 0; }
 diff --git a/runtime/gfx/vk/device/README.md b/runtime/gfx/vk/device/README.md
-index a9c8a0a..6f47c34 100644
+index 7620955..6a13de6 100644
 --- a/runtime/gfx/vk/device/README.md
 +++ b/runtime/gfx/vk/device/README.md
-@@ -18,3 +18,11 @@ submits and fences, present.
- | `vk_hdr_ui.c` | The F1 menu on an HDR10 swapchain: drawn into an RGBA8 image and blended onto the game's PQ picture at the system's paper white (`runtime/shaders/hdr_ui.frag`; from totk-pc-recomp, MIT) |
- | `vk_framegen.c` | Frame generation (`MKW_FRAMEGEN`): frames made between the game's from its last two (optical flow), on the present thread and the GPU; the present thread shows them evenly over the game's frame time |
- | `vk_guard.c` | `MKW_GPU_GUARD=1`: stops with `rt_fatal` before submitting what would fault the GPU (an object destroyed or queued for destruction before the last part that names it, a bind skipped by a cache the command buffer does not have, a pushed buffer address of 0); `MKW_GPU_GUARD_TEST=bind\|free` commits one on purpose |
-+
+@@ -29,3 +29,10 @@ in slow motion. A 120 Hz or faster display and at least 30 game fps are required
+ swapchain slots can lower this further. On fixed-refresh screens where the output does not divide the refresh evenly
+ (for example 120 fps at 144 Hz), the menu warns about uneven motion; use a compatible display mode or VRR when available.
+ Frame generation adds latency and can smear fast motion. This option is an output target, not a measured GPU preset.
 +The PS5 monolithic title uses Volk over the native ICD, loading instance/device
 +functions after creation, and requires uniformBufferStandardLayout for the
 +prepared UBO arrays. The internal completion function is named
@@ -1926,10 +1988,10 @@ index a9c8a0a..6f47c34 100644
 +excluded where those macros would rename table fields. Slow allocation logs
 +use the native thread id when a thread-name getter is unavailable.
 diff --git a/runtime/gfx/vk/device/vk.h b/runtime/gfx/vk/device/vk.h
-index bbfaf1d..8f601f1 100644
+index fdd997b..971dc7e 100644
 --- a/runtime/gfx/vk/device/vk.h
 +++ b/runtime/gfx/vk/device/vk.h
-@@ -539,7 +539,7 @@ int vk_sync_issued_wait(uint64_t value, uint64_t timeout_ns);   // 1 once value
+@@ -584,7 +584,7 @@ int vk_sync_issued_wait(uint64_t value, uint64_t timeout_ns);   // 1 once value
  // destroyed while a submission is still being recorded can wait for the parts already sent (vk_mem_note_submit).
  uint64_t vk_sync_part_done(void);          // newest part value the GPU reached
  void vk_sync_part_wait(uint64_t value);    // blocks until the GPU reached part value (submitted already)
@@ -1939,7 +2001,7 @@ index bbfaf1d..8f601f1 100644
  // The op-stream replay (vk_exec.c): records the command handles of one submission into cb, which the caller has
  // begun and ends. fence is the value this submission will signal. Returns the number of commands recorded into the
 diff --git a/runtime/gfx/vk/device/vk_backend.c b/runtime/gfx/vk/device/vk_backend.c
-index 6a0c3fd..2ff2300 100644
+index f2f2af5..cd90d59 100644
 --- a/runtime/gfx/vk/device/vk_backend.c
 +++ b/runtime/gfx/vk/device/vk_backend.c
 @@ -18,6 +18,7 @@
@@ -1950,7 +2012,7 @@ index 6a0c3fd..2ff2300 100644
  #include <stdio.h>
  #include <stdlib.h>
  #include <string.h>
-@@ -186,6 +187,37 @@ static PlatMutex rl = PLAT_MUTEX_INIT;
+@@ -200,6 +201,37 @@ static PlatMutex rl = PLAT_MUTEX_INIT;
  static PlatCond rcv = PLAT_COND_INIT;   // item queued, item taken, item done
  static ReplayItem rq[RQ_CAP];
  static int rq_head, rq_n, r_busy, r_started;
@@ -1988,7 +2050,7 @@ index 6a0c3fd..2ff2300 100644
  static uint64_t r_presents_queued, r_presents_done, r_submit_done, game_frames;
  // Under rl: calls, calls that waited and the time waited per cause, since the last replay_log line and over the run.
  static uint64_t dr_calls[DR_N], dr_waits[DR_N], dr_ns[DR_N], dr_tcalls[DR_N], dr_twaits[DR_N], dr_tns[DR_N];
-@@ -288,6 +320,7 @@ static void replay_core(void) {
+@@ -379,6 +411,7 @@ static void replay_core(void) {
  // while that submit is still to be recorded, as the game's threads do in a run.
  static void replay_main(void *arg) {
      (void)arg;
@@ -1996,7 +2058,7 @@ index 6a0c3fd..2ff2300 100644
      perf_replay_thread();
      const char *de = cfg_get("MKW_REPLAY_DELAY_US");
      uint64_t delay_ns = de ? strtoull(de, NULL, 10) * 1000 : 0;
-@@ -302,6 +335,9 @@ static void replay_main(void *arg) {
+@@ -393,6 +426,9 @@ static void replay_main(void *arg) {
          rq_head = (rq_head + 1) % RQ_CAP;
          rq_n--;
          r_busy = 1;
@@ -2006,7 +2068,7 @@ index 6a0c3fd..2ff2300 100644
          plat_cond_broadcast(&rcv);
          plat_mutex_unlock(&rl);
          if (it.kind == RI_SUBMIT && it.held) {
-@@ -310,6 +346,7 @@ static void replay_main(void *arg) {
+@@ -401,6 +437,7 @@ static void replay_main(void *arg) {
              if (it.held->submit_no > it.submit_no) it.submit_no = it.held->submit_no;   // it holds work submitted since
              free(it.held);
          }
@@ -2014,7 +2076,7 @@ index 6a0c3fd..2ff2300 100644
          if (it.kind == RI_SUBMIT) {
              if (delay_ns) plat_wait_ns(delay_ns);
              __atomic_store_n(&vk_replay_submit, it.submit_no, __ATOMIC_RELAXED);   // shadow syncs apply captures up to it
-@@ -340,12 +377,19 @@ static void replay_main(void *arg) {
+@@ -432,12 +469,19 @@ static void replay_main(void *arg) {
          }
          if (w0) vk_tl_replay_time(it.kind == RI_SUBMIT ? VK_TL_SUBMIT : it.kind == RI_RELEASE ? VK_TL_RELEASE
                                    : it.kind == RI_PRESENT ? VK_TL_PRESENT : VK_TL_REG, (int64_t)plat_now_ns() - w1);
@@ -2034,7 +2096,7 @@ index 6a0c3fd..2ff2300 100644
          plat_cond_broadcast(&rcv);
      }
      return;
-@@ -628,7 +672,7 @@ static void vk_be_held_fill(void *slot, const uint64_t *handles, int n) {
+@@ -720,7 +764,7 @@ static void vk_be_held_fill(void *slot, const uint64_t *handles, int n) {
      plat_cond_broadcast(&rcv);
      plat_mutex_unlock(&rl);
  }
@@ -2044,7 +2106,7 @@ index 6a0c3fd..2ff2300 100644
      static int on = -1;
      if (on < 0) {
 diff --git a/runtime/gfx/vk/device/vk_device.c b/runtime/gfx/vk/device/vk_device.c
-index dde7553..6ae2a44 100644
+index f99a896..a25c4c7 100644
 --- a/runtime/gfx/vk/device/vk_device.c
 +++ b/runtime/gfx/vk/device/vk_device.c
 @@ -7,6 +7,9 @@
@@ -2057,7 +2119,7 @@ index dde7553..6ae2a44 100644
  #endif
  
  #include "cfg.h"
-@@ -33,7 +36,11 @@ static VKAPI_ATTR VkResult VKAPI_CALL timed_alloc(VkDevice d, const VkMemoryAllo
+@@ -34,7 +37,11 @@ static VKAPI_ATTR VkResult VKAPI_CALL timed_alloc(VkDevice d, const VkMemoryAllo
          int64_t k = plat_inc64(&n_slow);
          char name[32] = "";
  #ifndef _WIN32
@@ -2069,7 +2131,7 @@ index dde7553..6ae2a44 100644
  #endif
          if (k <= 8 || !(k & (k - 1)))
              rt_log("vk: vkAllocateMemory of %.1f MiB (type %u) took %.1f ms on thread %u %s (%lld slow; %.0f ms for "
-@@ -111,6 +118,9 @@ static int create_instance(void) {
+@@ -112,6 +119,9 @@ static int create_instance(void) {
      rdoc_init();
      VkResult r = vkCreateInstance(&ci, NULL, &g_vk.instance);
      if (r != VK_SUCCESS) { rt_log("vk: vkCreateInstance failed (%d); is a Vulkan 1.3 driver installed?", (int)r); return 0; }
@@ -2079,7 +2141,7 @@ index dde7553..6ae2a44 100644
      g_vk.validation = validate;
      if (validate) {
          PFN_vkCreateDebugUtilsMessengerEXT f =
-@@ -367,6 +377,7 @@ static int create_device(void) {
+@@ -439,6 +449,7 @@ static int create_device(void) {
      const VkPhysicalDeviceFeatures *h = &c->f2.features;
      const char *miss = NULL;
      if (!c->f12.timelineSemaphore) miss = "timelineSemaphore";
@@ -2087,21 +2149,21 @@ index dde7553..6ae2a44 100644
      else if (!c->f12.drawIndirectCount) miss = "drawIndirectCount";   // MultiDrawElementsIndirectCount
      else if (!c->f13.dynamicRendering) miss = "dynamicRendering";
      else if (!c->f13.synchronization2) miss = "synchronization2";
-@@ -410,6 +421,9 @@ static int create_device(void) {
+@@ -482,6 +493,9 @@ static int create_device(void) {
      VkResult r = vkCreateDevice(g_vk.phys, &di, NULL, &g_vk.device);
      free(c);
      if (r != VK_SUCCESS) { rt_log("vk: vkCreateDevice failed (%d)", (int)r); return 0; }
 +#ifdef __PROSPERO__
 +    volkLoadDevice(g_vk.device);
 +#endif
+     vk_lat_device(g_vk.device, has_pw);
+     vk_pstate_init(g_vk.phys);
      vkGetDeviceQueue(g_vk.device, g_vk.gfx_family, 0, &g_vk.gfx_queue);
-     if (g_vk.xfer_family != g_vk.gfx_family) vkGetDeviceQueue(g_vk.device, g_vk.xfer_family, 0, &g_vk.xfer_queue);
-     else { g_vk.xfer_queue = g_vk.gfx_queue; g_vk.xfer_shared = 1; }
 diff --git a/runtime/gfx/vk/device/vk_sync.c b/runtime/gfx/vk/device/vk_sync.c
-index 1da888b..3d8163b 100644
+index 94624ca..0eb8281 100644
 --- a/runtime/gfx/vk/device/vk_sync.c
 +++ b/runtime/gfx/vk/device/vk_sync.c
-@@ -682,6 +682,7 @@ static void stall_log(uint64_t value, uint64_t waited_ns, uint64_t res, uint64_t
+@@ -730,6 +730,7 @@ static void stall_log(uint64_t value, uint64_t waited_ns, uint64_t res, uint64_t
                   (unsigned long long)((uintptr_t)fn - plat_exe_base()), (double)(now - cs) / 1e6);
      else if (gs)
          snprintf(comp, sizeof comp, "waiting for the GPU for %.1f ms", (double)(now - gs) / 1e6);
@@ -2109,7 +2171,7 @@ index 1da888b..3d8163b 100644
      rt_log("vk: fence wait %u for %llu gave up after %.1f ms: reserved %llu issued %llu queued %llu gpu %llu done %llu, "
             "parts waiting %d; submit %s; completion thread %s; pipelines %u queued or building, %d workers busy", k,
             (unsigned long long)value, (double)waited_ns / 1e6, (unsigned long long)res, (unsigned long long)iss,
-@@ -762,7 +763,7 @@ void vk_sync_part_wait(uint64_t value) {
+@@ -810,7 +811,7 @@ void vk_sync_part_wait(uint64_t value) {
      if (vkWaitSemaphores(c->device, &wi, UINT64_MAX) != VK_SUCCESS) rt_fatal("vk: wait for part %llu failed", (unsigned long long)value);
  }
  
@@ -2118,7 +2180,7 @@ index 1da888b..3d8163b 100644
      vk_sync_start();
      vk_sync_fence_wait(__atomic_load_n(&issued, __ATOMIC_ACQUIRE), UINT64_MAX);
      vk_upload_flush(1);
-@@ -771,7 +772,7 @@ void vk_sync_finish(void) {
+@@ -819,7 +820,7 @@ void vk_sync_finish(void) {
  void vk_sync_shutdown(void) {
      plat_mutex_lock(&start_lock);
      if (started) {
@@ -2142,10 +2204,10 @@ index efbabeb..44a96af 100644
 +#endif
  #include "vk_mem_alloc.h"
 diff --git a/runtime/gfx/vk/diag/vk_dump.c b/runtime/gfx/vk/diag/vk_dump.c
-index 4b94549..05e8d28 100644
+index 8a2aaaf..ac2021e 100644
 --- a/runtime/gfx/vk/diag/vk_dump.c
 +++ b/runtime/gfx/vk/diag/vk_dump.c
-@@ -766,7 +766,7 @@ void vk_dump_present(uint64_t frame) {
+@@ -785,7 +785,7 @@ void vk_dump_present(uint64_t frame) {
      plat_mutex_lock(&rec_lock);
      finished = 1;
      plat_mutex_unlock(&rec_lock);
@@ -2155,10 +2217,10 @@ index 4b94549..05e8d28 100644
      plat_mutex_lock(&img_lock);
      fclose(images_f);
 diff --git a/runtime/gfx/vk/diag/vk_rtstats.c b/runtime/gfx/vk/diag/vk_rtstats.c
-index 3064038..5228650 100644
+index 5db961a..9509ae6 100644
 --- a/runtime/gfx/vk/diag/vk_rtstats.c
 +++ b/runtime/gfx/vk/diag/vk_rtstats.c
-@@ -273,7 +273,7 @@ void vk_rtstats_init(void) {
+@@ -276,7 +276,7 @@ void vk_rtstats_init(void) {
  }
  
  void vk_rtstats_flush(void) {
@@ -2168,10 +2230,10 @@ index 3064038..5228650 100644
      while (pending) plat_cond_wait(&idle_cv, &q_lock);
      plat_mutex_unlock(&q_lock);
 diff --git a/runtime/gfx/vk/mem/vk_mem_internal.h b/runtime/gfx/vk/mem/vk_mem_internal.h
-index 3914281..0d1c7c1 100644
+index 0efa41a..9ed42e0 100644
 --- a/runtime/gfx/vk/mem/vk_mem_internal.h
 +++ b/runtime/gfx/vk/mem/vk_mem_internal.h
-@@ -236,3 +236,25 @@ void vk_uptime_call(int slot, void *at);
+@@ -241,3 +241,25 @@ void vk_uptime_call(int slot, void *at);
  void vk_uptime_end(VkCommandBuffer cb, int slot);
  void vk_uptime_done(int slot, uint64_t seq, uint64_t stg, uint64_t texels, uint32_t calls);
  void upload_shutdown(VkCtx *c);
@@ -2198,11 +2260,11 @@ index 3914281..0d1c7c1 100644
 +
 +
 diff --git a/runtime/gfx/vk/mem/vk_mem_lazy.c b/runtime/gfx/vk/mem/vk_mem_lazy.c
-index edf48e9..2155269 100644
+index c2d6c2b..01c20a6 100644
 --- a/runtime/gfx/vk/mem/vk_mem_lazy.c
 +++ b/runtime/gfx/vk/mem/vk_mem_lazy.c
-@@ -135,7 +135,7 @@ int lazy_page_base(LazyBase *b, uint64_t x, const uint8_t *s, uint64_t n, uint8_
-     plat_mutex_lock(&lazy_lock);
+@@ -137,7 +137,7 @@ int lazy_page_base(LazyBase *b, uint64_t x, const uint8_t *s, uint64_t n, uint8_
+     plat_mutex_lock_shared(&lazy_lock);
      int r = 1;
      if (!inbuf(b, p)) {
 -        r = memcmp(s, (const void *)(uintptr_t)x, n) ? 2 : 0;
@@ -2211,10 +2273,10 @@ index edf48e9..2155269 100644
          plat_inc64(&s_lazy_cmp);
      }
 diff --git a/runtime/gfx/vk/mem/vk_mem_merge.c b/runtime/gfx/vk/mem/vk_mem_merge.c
-index edde781..6055d56 100644
+index 02882d6..779005d 100644
 --- a/runtime/gfx/vk/mem/vk_mem_merge.c
 +++ b/runtime/gfx/vk/mem/vk_mem_merge.c
-@@ -52,7 +52,7 @@ uint64_t merge_in(PoolRec *r, uint64_t a, uint64_t b, uint8_t *const *bases, con
+@@ -55,7 +55,7 @@ uint64_t merge_in(PoolRec *r, uint64_t a, uint64_t b, uint8_t *const *bases, con
          if (!src && mem_trapped(x)) continue;
          const uint8_t *g = src ? src + (x - a) : (const uint8_t *)(uintptr_t)x;
          uint8_t *sp = s + (x - a);
@@ -2223,7 +2285,7 @@ index edde781..6055d56 100644
          for (uint64_t i = 0; i < y - x; i++) {
              if (g[i] == sp[i]) continue;
              int gpu = 0, cpu_after = 1;   // the GPU changed it; the CPU wrote it after the base (it differs from every base)
-@@ -138,11 +138,11 @@ uint64_t merge_back(uint64_t addr, uint64_t size, const uint8_t *s, const uint8_
+@@ -145,11 +145,11 @@ static void merge_back_bytes(uint64_t addr, uint64_t size, const uint8_t *s, con
          }
          // A page at a time first: ranges of 1-4 MiB the GPU binds and never changes are ~460 MiB a 60-frame window of
          // the race (wbc2), and one memcmp call per 64 bytes cost its call each time.
@@ -2251,10 +2313,10 @@ index 63eb62e..afa533a 100644
              bad++;
              if (plat_inc32(&logged) <= VERIFY_LOG) {
 diff --git a/runtime/gfx/vk/tex/vk_sparse.c b/runtime/gfx/vk/tex/vk_sparse.c
-index 27f4140..0187264 100644
+index a65f19e..4d53e95 100644
 --- a/runtime/gfx/vk/tex/vk_sparse.c
 +++ b/runtime/gfx/vk/tex/vk_sparse.c
-@@ -560,6 +560,31 @@ int vk_sparse_create(const VkImageCreateInfo *ci0, const nvn_texdesc *d, uint64_
+@@ -595,6 +595,31 @@ int vk_sparse_create(const VkImageCreateInfo *ci0, const nvn_texdesc *d, uint64_
          if (plat_inc32(&nwarn) <= 8) rt_log("vk: sparse: VkFormat %d usage %#x has no standard sparse blocks", (int)ci.format, ci.usage);
          return 0;
      }
@@ -2286,7 +2348,7 @@ index 27f4140..0187264 100644
      int32_t lay[4];   // levels with whole tiles, tile width, height, depth
      nvn_sparse_tile_layout(d, lay);
      SparseImg *s = calloc(1, sizeof *s);
-@@ -580,15 +605,16 @@ int vk_sparse_create(const VkImageCreateInfo *ci0, const nvn_texdesc *d, uint64_
+@@ -616,15 +641,16 @@ int vk_sparse_create(const VkImageCreateInfo *ci0, const nvn_texdesc *d, uint64_
          // The virtual range of a sparse image is reserved at creation: on RADV GFX8 (Polaris, #314) the 8192x8192x68
          // arrays failed, likely past the device's sparse address space. Its size, ours so far and the device's say.
          if (plat_inc32(&nwarn) <= 8) {
@@ -2309,7 +2371,7 @@ index 27f4140..0187264 100644
                     (unsigned long long)(c->props.limits.sparseAddressSpaceSize >> 20));
          }
 diff --git a/runtime/gfx/vk/tex/vk_tex_image.c b/runtime/gfx/vk/tex/vk_tex_image.c
-index 0b72ddc..f8bea39 100644
+index 338c99a..53a9a68 100644
 --- a/runtime/gfx/vk/tex/vk_tex_image.c
 +++ b/runtime/gfx/vk/tex/vk_tex_image.c
 @@ -7,6 +7,7 @@
@@ -2320,7 +2382,7 @@ index 0b72ddc..f8bea39 100644
  #include "nvn_api.h"
  #include "nvn_hmap.h"
  #include "nvn_tex.h"
-@@ -408,6 +409,7 @@ Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
+@@ -517,6 +518,7 @@ Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
          plat_inc32(&why[w]);
          int32_t all = 0;
          for (int i = 0; i < 6; i++) all += why[i];
@@ -2328,7 +2390,7 @@ index 0b72ddc..f8bea39 100644
          if (all % 256 == 0)
              rt_log("vk: ASTC BC1 (MKW_ASTC_BC1): %d of %d images; BC7 for 4096+ %d, no CPU storage %d, GPU-only %d, "
                     "sparse %d, alpha %d (BC1 for alpha 1 decoded in every texel %d, %.0f ms decoding)", why[0], all,
-@@ -523,6 +525,31 @@ Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
+@@ -642,6 +644,31 @@ Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
                          "own memory instead", (unsigned long long)k->addr, w, h, d->format, ci.mipLevels, ci.arrayLayers);
          }
      }
@@ -2361,10 +2423,10 @@ index 0b72ddc..f8bea39 100644
          VmaAllocationCreateInfo ai = {.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
          VkResult r = vma_image(c, &ci, &ai, &img, &e->alloc);
 diff --git a/runtime/input/README.md b/runtime/input/README.md
-index b67e87a..a278845 100644
+index f0e87ca..e6551b5 100644
 --- a/runtime/input/README.md
 +++ b/runtime/input/README.md
-@@ -28,3 +28,9 @@ Default keyboard (`input_map.c`, changeable in the `.ini`):
+@@ -32,3 +32,9 @@ Default keyboard (`input_map.c`, changeable in the `.ini`):
  | 1-4 | D-pad | |
  | Tab | + | pause |
  | M | − | |
@@ -2374,12 +2436,65 @@ index b67e87a..a278845 100644
 +rumble are exposed; this initial adapter has no keyboard/mouse, calibrated
 +motion stream or Xbox impulse-trigger interface. It does not manufacture
 +connected sensor samples.
+diff --git a/runtime/input/input_power.c b/runtime/input/input_power.c
+index 2170456..287b802 100644
+--- a/runtime/input/input_power.c
++++ b/runtime/input/input_power.c
+@@ -6,7 +6,9 @@
+ // no caller in MKW): the menu (F1), the start screen and a notice show it.
+ #include <stdio.h>
+ #include <stdlib.h>
++#ifndef __PROSPERO__
+ #include <SDL3/SDL.h>
++#endif
+ 
+ #include "cfg.h"
+ #include "host.h"
+@@ -24,6 +26,14 @@
+ // choice, not a measure: about the last tenth of a play session on a DualSense.
+ enum { LOW_PCT = 15, REARM_PCT = 30, WATCH_NS = 2000000000 };
+ 
++#ifdef __PROSPERO__
++// The console's pads go through the title's own pad adapter, which reports no battery: the rows show nothing.
++int input_pad_power(int player, InputPower *out) {
++    (void)player;
++    *out = (InputPower){INPUT_POWER_NONE, -1, 0, ""};
++    return out->state;
++}
++#else
+ int input_power_from_sdl(int st, int pct, uint32_t id, int index, InputPower *out) {
+     // MKW_BATTERY_TEST=<percent>: every gamepad on battery at that level (virtual gamepads have none), for the rows,
+     // the start screen and the notice without a controller running down
+@@ -61,6 +71,8 @@ int input_pad_power(int player, InputPower *out) {
+     return st == -2 ? out->state : input_power_from_sdl(st, pct, id, xi, out);
+ }
+ 
++#endif
++
+ const char *input_power_text(const InputPower *p, char *out, int out_size) {
+     char level[32] = "";
+     if (p->coarse) snprintf(level, sizeof level, "%s", menu_text(p->percent <= 10 ? UI_POWER_LOW
+@@ -77,6 +89,7 @@ const char *input_power_text(const InputPower *p, char *out, int out_size) {
+     return out;
+ }
+ 
++#ifndef __PROSPERO__
+ // Every 2 s: each player's battery; a notice (and a log line) when one goes low on battery.
+ static void watch_main(void *arg) {
+     (void)arg;
+@@ -108,3 +121,6 @@ void input_power_start(void) {
+     started = 1;
+     if (!plat_thread_spawn(watch_main, NULL, "battery", 0)) rt_log("input: no battery watch thread");
+ }
++#else
++void input_power_start(void) {}
++#endif
 diff --git a/runtime/input/input_ps5.c b/runtime/input/input_ps5.c
 new file mode 100644
-index 0000000..9997b78
+index 0000000..d292059
 --- /dev/null
 +++ b/runtime/input/input_ps5.c
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,74 @@
 +// Native PS5 gamepad adapter; no SDL dependency. SPDX-License-Identifier: MIT
 +#include "input.h"
 +#include "input_map.h"
@@ -2415,7 +2530,7 @@ index 0000000..9997b78
 + plat_mutex_lock(&lock);init();input_map_configure();read_pad(player,b,sticks);
 + {const char *off=cfg_get("MKW_INPUT");   /* an environment switch, not a settings row: cfg_value would be fatal */
 +  if(off && !strcmp(off,"none")){*b=0;memset(sticks,0,sizeof sticks);}}
-+ if(!player){toggle=input_menu_gate(&combo,menu_is_open(),b,sticks);perf=input_overlay_gate(&overlay,b);}
++ if(!player){toggle=input_menu_gate(&combo,menu_is_open(),b,sticks,0);   /* no Guide button on the PS5 pad adapter */perf=input_overlay_gate(&overlay,b);}
 + plat_mutex_unlock(&lock);
 + if(toggle)menu_toggle();if(perf)menu_perf_cycle();
 + script_apply(b,sticks,sticks+2,player);directions(b,sticks);
@@ -2449,8 +2564,13 @@ index 0000000..9997b78
 +int input_motion_enabled(void){return 0;} // The title's pad API does not expose calibrated sensor readings yet.
 +void input_motion_start(void){}
 +void input_motion_axes(const float a[3],const float g[3],double acc[3],double gyro[3]){acc[0]=-a[0]/9.80665;acc[1]=a[2]/9.80665;acc[2]=-a[1]/9.80665;gyro[0]=-g[0];gyro[1]=g[2];gyro[2]=-g[1];}
++
++/* 094 (merge of 21/11): settings rows of the desktop input added upstream. The console pad has no SDL deadzone of its
++   own to show (-1: the row shows the setting alone), and the pad adapter is always running. */
++double input_stick_deadzone_default(void) { return -1; }
++int input_gamepads_running(void) { return 1; }
 diff --git a/runtime/platform/README.md b/runtime/platform/README.md
-index 0f75767..46c3ae0 100644
+index 16266b3..8b7b8e1 100644
 --- a/runtime/platform/README.md
 +++ b/runtime/platform/README.md
 @@ -2,9 +2,21 @@
@@ -2474,7 +2594,7 @@ index 0f75767..46c3ae0 100644
 +| `ps5_nso_probe.c`, `ps5_nso_probe.h` | Diagnostic-only raw NSO loading at fixed layout addresses: compressed segments, file/image SHA-256, BSS, and RO/RW tests through the SDK's checked-copy API. Does not bind imports, relocate, instrument direct guest accesses or execute game code |
  | `linux_fs.c` | Linux: files and file system (atomic write, rename without replace) |
  | `linux_mem.c` | Linux: virtual memory, write watching with userfaultfd (Linux 6.7+), fault handler; `plat_mem_poke` writes through the protection via `/proc/self/mem` |
- | `linux_sys.c` | Linux: process, desktop, libraries, machine load (CPU, temperature, GPU) and desktop shortcut |
+ | `linux_sys.c` | Linux: process, local IPC (Unix sockets), desktop, libraries, machine load (CPU, temperature, GPU) and desktop shortcut |
 @@ -15,3 +27,33 @@
  | `win32_load.c` | Windows: machine load (CPU, PDH for temperature and GPU) and desktop shortcut |
  | `common.c`, `fp_x86.h` | Common parts, x86 floating point control |
@@ -2510,10 +2630,10 @@ index 0f75767..46c3ae0 100644
 +
 +Ready scalar/vector CPU accesses try the checked transaction directly. Rejection enters the existing lazy/watch/fault path before retrying. Single-region copies avoid staging and duplicate rights/backing checks; the SDK still checks every logical page before touching bytes and records dirty writes.
 diff --git a/runtime/platform/linux.c b/runtime/platform/linux.c
-index 9e8cb2a..56cc28b 100644
+index db64310..660b99f 100644
 --- a/runtime/platform/linux.c
 +++ b/runtime/platform/linux.c
-@@ -217,6 +217,9 @@ void plat_intr_free(PlatIntr *t) {
+@@ -312,6 +312,9 @@ void plat_intr_free(PlatIntr *t) {
      free(t);
  }
  
@@ -2524,10 +2644,10 @@ index 9e8cb2a..56cc28b 100644
      int32_t idle = INTR_IDLE;
      if (!__atomic_compare_exchange_n(&t->state, &idle, INTR_REQ, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return 0;
 diff --git a/runtime/platform/platform.h b/runtime/platform/platform.h
-index 0af8760..82bd8b7 100644
+index 6a85145..463bd56 100644
 --- a/runtime/platform/platform.h
 +++ b/runtime/platform/platform.h
-@@ -48,6 +48,11 @@ void plat_intr_free(PlatIntr *t);
+@@ -59,6 +59,11 @@ void plat_intr_free(PlatIntr *t);
  // Stops t and reads its instruction and stack pointers: 1 when stopped, 0 when it did not stop in time (a thread
  // blocked in the OS); t then runs on untouched.
  int plat_intr_stop(PlatIntr *t, uint64_t *rip, uint64_t *rsp);
@@ -5173,6 +5293,60 @@ index 0000000..bb85e2e
 +// Direct title startup pre-backs logical commits used by native HLE pointers.
 +// Combined with the core's chunked lazy commit, this does not back the whole heap.
 +void ps5_memory_native_hle(int enable);
+diff --git a/runtime/platform/ps5_next.c b/runtime/platform/ps5_next.c
+new file mode 100644
+index 0000000..7e245e0
+--- /dev/null
++++ b/runtime/platform/ps5_next.c
+@@ -0,0 +1,48 @@
++// PS5 side of the platform calls upstream added after 15/11/2026 (merge of 21/11/2026). SPDX-License-Identifier: MIT
++//
++// Conservative versions: what the console cannot do or does not need reports "unavailable" and the callers keep their
++// fallback (no spilling to a file, no Discord presence, no hybrid-core placement, no heap census).
++#ifdef __PROSPERO__
++#include <fcntl.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++#include "platform.h"
++
++// The PS5's eight Zen 2 cores are alike and the title gets no topology: every processor is "fast" and its own core.
++uint64_t plat_cpu_fast(void) {
++    uint32_t n = plat_cpu_count();
++    return n >= 64 ? ~0ull : (1ull << n) - 1;
++}
++uint64_t plat_cpu_core_of(int cpu) { return cpu >= 0 && cpu < 64 ? 1ull << cpu : 0; }
++void plat_thread_background(void) {}   // affinity is not set on the console (plat_thread_affinity is a no-op too)
++
++// Guest memory lives in the checked region (ps5_guest_memory.c): pages are not dropped behind its back.
++int plat_mem_drop(uint64_t addr, uint64_t n) { (void)addr, (void)n; return 0; }
++void plat_mem_name(const void *p, size_t n, const char *name) { (void)p, (void)n, (void)name; }
++int64_t plat_mem_resident(const void *p, size_t n) { (void)p, (void)n; return -1; }   // unknown
++
++struct PlatIpc { int unused; };
++PlatIpc *plat_ipc_open(const char *name) { (void)name; return NULL; }   // nobody listens (Discord presence)
++int plat_ipc_send(PlatIpc *c, const void *data, size_t n) { (void)c, (void)data, (void)n; return 0; }
++long plat_ipc_recv(PlatIpc *c, void *buf, size_t cap) { (void)c, (void)buf, (void)cap; return -1; }
++void plat_ipc_close(PlatIpc *c) { (void)c; }
++
++uint64_t plat_path_write_time(const char *path) {
++    struct stat st;
++    return stat(path, &st) ? 0 : (uint64_t)st.st_mtim.tv_sec * 1000000000u + (uint64_t)st.st_mtim.tv_nsec;
++}
++
++PlatFile *plat_file_scratch(const char *dir) {   // a name of our own, removed at once (a PlatFile is fd + 1)
++    char p[1024];
++    snprintf(p, sizeof p, "%s/.mkw-scratch-%d", dir, (int)getpid());
++    int fd = open(p, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
++    if (fd >= 0) unlink(p);
++    return fd < 0 ? NULL : (PlatFile *)(intptr_t)(fd + 1);
++}
++
++void plat_heap_trim(void) {}
++void plat_heap_stats(uint64_t *in_use, uint64_t *free_bytes, uint64_t *mapped) { *in_use = *free_bytes = *mapped = 0; }
++#endif
 diff --git a/runtime/platform/ps5_nso_link.c b/runtime/platform/ps5_nso_link.c
 new file mode 100644
 index 0000000..3960866
@@ -6657,10 +6831,10 @@ index 0000000..5dcfa43
 +int ps5_title_pad(int player, Ps5PadSample *out);
 +int ps5_title_rumble(int player, float low, float high, uint32_t ms);
 diff --git a/runtime/platform/win32.c b/runtime/platform/win32.c
-index 394be8f..75abae0 100644
+index 3757930..20ba87e 100644
 --- a/runtime/platform/win32.c
 +++ b/runtime/platform/win32.c
-@@ -153,6 +153,9 @@ void plat_intr_free(PlatIntr *t) {
+@@ -197,6 +197,9 @@ void plat_intr_free(PlatIntr *t) {
      _aligned_free(t);
  }
  
@@ -6670,8 +6844,29 @@ index 394be8f..75abae0 100644
  int plat_intr_stop(PlatIntr *t, uint64_t *rip, uint64_t *rsp) {
      if (SuspendThread(t->h) == (DWORD)-1) return 0;
      memset(&t->ctx, 0, sizeof t->ctx);
+diff --git a/runtime/plugin/plugin_ps5.c b/runtime/plugin/plugin_ps5.c
+new file mode 100644
+index 0000000..83191dc
+--- /dev/null
++++ b/runtime/plugin/plugin_ps5.c
+@@ -0,0 +1,15 @@
++// The PS5 title loads no plugins: mods' plugin/ libraries are native desktop code (dlopen/LoadLibrary), which a console
++// title cannot load. These are the plugin.c entry points the rest of the runtime calls, as "no plugins". SPDX: MIT
++#ifdef __PROSPERO__
++#include <stddef.h>
++#include "plugin.h"
++
++void plugins_load(void) {}
++void plugins_game_loaded(void) {}
++void plugins_started(void) {}
++void plugins_exit(void) {}
++int plugins_tab_count(void) { return 0; }
++const char *plugins_tab_title(int i) { (void)i; return NULL; }
++void plugins_tab_draw(int i, float scale) { (void)i, (void)scale; }
++void plugins_tab_shown(int i) { (void)i; }
++#endif
 diff --git a/runtime/sdk/fs/README.md b/runtime/sdk/fs/README.md
-index 91e2b35..23aa5d0 100644
+index aac74b5..6d3796e 100644
 --- a/runtime/sdk/fs/README.md
 +++ b/runtime/sdk/fs/README.md
 @@ -10,3 +10,9 @@ Files, saves and RomFS, and the RomFS overlay with the internal resolution.
@@ -6685,10 +6880,10 @@ index 91e2b35..23aa5d0 100644
 +
 +`romfs_index.c`/`romfs_index.h` validate an optional PS5 loose-RomFS metadata index (bounds, names, sorted rows and SHA-256 trailer). It avoids title-side enumeration; contents remain loose files. Startup checks three direct reads, not every asset hash.
 diff --git a/runtime/sdk/fs/fs_host.c b/runtime/sdk/fs/fs_host.c
-index d9b2b22..74327be 100644
+index 126aea3..10fdb35 100644
 --- a/runtime/sdk/fs/fs_host.c
 +++ b/runtime/sdk/fs/fs_host.c
-@@ -110,9 +110,19 @@ int fs_save_busy(void) {
+@@ -111,9 +111,19 @@ int fs_save_busy(void) {
  }
  
  // ---- host directories
@@ -6710,7 +6905,7 @@ index d9b2b22..74327be 100644
  
  // p and every missing parent.
 diff --git a/runtime/sdk/fs/romfs.c b/runtime/sdk/fs/romfs.c
-index 037d45a..dbe90a4 100644
+index dfc050a..3c02a40 100644
 --- a/runtime/sdk/fs/romfs.c
 +++ b/runtime/sdk/fs/romfs.c
 @@ -22,11 +22,13 @@
@@ -6797,7 +6992,7 @@ index 037d45a..dbe90a4 100644
      qsort(loose_files, loose_n, sizeof *loose_files, loose_order);
      size_t strings = 0;
      for (size_t i = 0; i < loose_n; i++) strings += strlen(loose_files[i].name) + 1;
-@@ -723,6 +759,16 @@ static int handle_source(uint64_t h, PlatFile **f, uint64_t *base, uint8_t **mem
+@@ -731,6 +767,16 @@ static int handle_source(uint64_t h, PlatFile **f, uint64_t *base, uint8_t **mem
      return 1;
  }
  
@@ -6814,7 +7009,7 @@ index 037d45a..dbe90a4 100644
  uint32_t romfs_read(uint64_t *out, uint64_t h, int64_t offset, void *buffer, uint64_t size) {
      PlatFile *f;
      uint64_t fsize, base;
-@@ -733,6 +779,8 @@ uint32_t romfs_read(uint64_t *out, uint64_t h, int64_t offset, void *buffer, uin
+@@ -741,6 +787,8 @@ uint32_t romfs_read(uint64_t *out, uint64_t h, int64_t offset, void *buffer, uin
      if (mem) {
          mem_thaw((uintptr_t)buffer, n);
          memcpy(buffer, mem + offset, n);
@@ -6823,7 +7018,7 @@ index 037d45a..dbe90a4 100644
          *out = n;
          return 0;
      }
-@@ -741,6 +789,8 @@ uint32_t romfs_read(uint64_t *out, uint64_t h, int64_t offset, void *buffer, uin
+@@ -749,6 +797,8 @@ uint32_t romfs_read(uint64_t *out, uint64_t h, int64_t offset, void *buffer, uin
          mem_thaw((uintptr_t)buffer, n);
          if (!pack_read_at(package, &package_rows[i], (uint64_t)offset, buffer, n))
              rt_fatal("RomFS: read of %s at %#llx failed (see the log)", package_rows[i].name, (unsigned long long)offset);
@@ -6832,7 +7027,7 @@ index 037d45a..dbe90a4 100644
          *out = n;
          return 0;
      }
-@@ -750,6 +800,7 @@ uint32_t romfs_read(uint64_t *out, uint64_t h, int64_t offset, void *buffer, uin
+@@ -758,6 +808,7 @@ uint32_t romfs_read(uint64_t *out, uint64_t h, int64_t offset, void *buffer, uin
          if (r <= 0) rt_fatal("RomFS read failure at %#llx", (unsigned long long)(offset + done));
          done += (uint64_t)r;
      }
@@ -6887,7 +7082,7 @@ index 0000000..a952873
 +#include <stddef.h>
 +int romfs_index_validate(const uint8_t *bytes, size_t size, uint64_t *count, uint64_t *strings);
 diff --git a/runtime/sdk/ov/README.md b/runtime/sdk/ov/README.md
-index 1ef63f4..2e19d5d 100644
+index 127860f..827eea0 100644
 --- a/runtime/sdk/ov/README.md
 +++ b/runtime/sdk/ov/README.md
 @@ -4,6 +4,7 @@ Replacements of `nn::*` functions by name: system, input, audio, video, graphics
@@ -6896,11 +7091,11 @@ index 1ef63f4..2e19d5d 100644
  |---|---|
 +| `display_version.c`, `display_version.h` | Shared GetDisplayVersion payload: formats a local 16-byte result and publishes once, through checked HLE copying when selected or native memcpy by default; used by ov_oe2.c and the PS5 integration diagnostic |
  | `ov_system.c` | Accounts, applets, time, system fonts, etc. |
- | `ov_input.c`, `ov_media.c`, `ov_gfx.c`, `ov_zstd.c` | Input, Opus, the SDK's graphics (`nv::InitializeGraphics(0, 0)` is valid on Switch 2; `nv::InitCheck`), native zstd |
+ | `ov_input.c`, `ov_media.c`, `ov_gfx.c`, `ov_zstd.c` | Input, Opus, the SDK's graphics (`nv::InitializeGraphics(0, 0)` is valid on Switch 2; `nv::InitCheck`), native zstd (its outputs go to `core/hacks/classic.c`, which patches the cups' archive) |
  | `ov_codec.c` | MKW's video: the `nn::codec` video API (VP9 with libvpx, decoded in `Submit`) and the `nn::syncpt` events as the game's `SystemEvent` |
 @@ -15,3 +16,15 @@ Replacements of `nn::*` functions by name: system, input, audio, video, graphics
- | `ov_lanaddr.c` | MKW's own: the address and mask `nifm` reports in LAN mode, chosen from the host's interfaces (or `MKW_LAN_IP`) |
- | `ov_socket.c` | MKW's own: `nn::socket` as main's network-down stub by default; with `MKW_LAN=1`, over the host's sockets (datagrams, poll, eventfd), with the console's FreeBSD sockaddr, options and flags: the base of LAN play. Bind and SendTo take local network addresses only (private, link-local, multicast, broadcast), so LAN play cannot reach the internet. LAN tested on Linux only; on Windows it compiles, with ICMP resets off on datagram sockets and no eventfd (only gRPC, online, calls it) |
+ | `ov_lanaddr.c` | MKW's own: the address and mask `nifm` reports in LAN mode: `MKW_LAN_IP`, else the route to the first of `MKW_LAN_PEERS`, else the best of the host's interfaces (the default route's network, another local network, link-local, a /32 last); Tailscale's 100.64.0.0/10 as its mask; `ov_lan_list` (`ov_lanif.h`) lists the interfaces for the menu's LAN network row, which writes `MKW_LAN_IP` (#707) |
+ | `ov_socket.c` | MKW's own: `nn::socket` as main's network-down stub by default; with `MKW_LAN=1`, over the host's sockets (datagrams, poll, eventfd), with the console's FreeBSD sockaddr, options and flags: the base of LAN play. Bind and SendTo take local network addresses only (private, link-local, multicast, broadcast), so LAN play cannot reach the internet. `MKW_LAN_PEERS`: the lobby's broadcasts also sent to each listed PC (a VPN such as Tailscale carries no broadcast); a loopback `MKW_LAN_IP` is bound for two instances on one PC. LAN tested on Linux only; on Windows it compiles, with ICMP resets off on datagram sockets and no eventfd (only gRPC, online, calls it) |
  | `ov_time2.c` | MKW's own: the `nn::time` that totk-pc-recomp does not replace (exact network clock, host time zone, instant clock correction) |
 +
 +For the PS5 build, socket errors map from native FreeBSD numbering to the
@@ -6972,11 +7167,11 @@ index 454fba6..95a7ff8 100644
  
  // int nn::oe::GetCurrentGraphicsScale(): 10, 20 or 30 (eden-nx2 NX2_NOTES.md row 15); 10 until the scale is measured.
 diff --git a/runtime/sdk/ov/ov_socket.c b/runtime/sdk/ov/ov_socket.c
-index a48782e..6128ade 100644
+index 80c436b..e2198a3 100644
 --- a/runtime/sdk/ov/ov_socket.c
 +++ b/runtime/sdk/ov/ov_socket.c
-@@ -47,7 +47,9 @@ typedef SOCKET HostSock;
- #include <net/if.h>
+@@ -54,7 +54,9 @@ typedef SOCKET HostSock;
+ #include <netdb.h>
  #include <netinet/in.h>
  #include <poll.h>
 +#ifdef __linux__
@@ -6985,7 +7180,7 @@ index a48782e..6128ade 100644
  #include <sys/socket.h>
  #include <unistd.h>
  typedef int HostSock;
-@@ -143,6 +145,29 @@ static int host_errno(void) {
+@@ -150,6 +152,29 @@ static int host_errno(void) {
      default: return G_EIO;
      }
  }
@@ -7015,7 +7210,7 @@ index a48782e..6128ade 100644
  #else
  static int host_errno(void) { return errno; }
  #endif
-@@ -179,6 +204,9 @@ static int set_nonblock(HostSock s) {
+@@ -186,6 +211,9 @@ static int set_nonblock(HostSock s) {
  static int addr_in(const uint8_t *b, uint32_t len, struct sockaddr_in *h) {
      if (!b || len < 8 || b[1] != B_AF_INET) return fail(G_EAFNOSUPPORT), -1;
      memset(h, 0, sizeof *h);
@@ -7025,7 +7220,7 @@ index a48782e..6128ade 100644
      h->sin_family = AF_INET;
      memcpy(&h->sin_port, b + 2, 2);
      memcpy(&h->sin_addr, b + 4, 4);
-@@ -495,7 +523,7 @@ static void ov_poll(Cpu *c) {
+@@ -580,7 +608,7 @@ static void ov_poll(Cpu *c) {
  // int EventFd(uint64_t initval, EventFdFlags flags)
  static void ov_eventfd(Cpu *c) {
      LAN_OR_DOWN(c);
@@ -7034,7 +7229,7 @@ index a48782e..6128ade 100644
      // ponytail: no eventfd on Windows; only gRPC (online) calls it, see the top. A loopback socket pair if Pia ever does
      fail(G_ENOSYS);
      ret_x(c, (uint64_t)-1);
-@@ -516,7 +544,7 @@ static void ov_eventfd_read(Cpu *c) {
+@@ -601,7 +629,7 @@ static void ov_eventfd_read(Cpu *c) {
      Slot sl;
      LAN_OR_DOWN(c);
      int ok = !slot_get((int)arg_x(c, 0), &sl), r = -1;
@@ -7043,7 +7238,7 @@ index a48782e..6128ade 100644
      if (ok && (sl.nonblock || wait_readable(sl.s, -1))) {
          r = read(sl.s, arg_p(c, 1), 8) == 8 ? 0 : -1;
          if (r < 0) fail(errno);
-@@ -530,7 +558,7 @@ static void ov_eventfd_write(Cpu *c) {
+@@ -615,7 +643,7 @@ static void ov_eventfd_write(Cpu *c) {
      Slot sl;
      LAN_OR_DOWN(c);
      int ok = !slot_get((int)arg_x(c, 0), &sl), r = -1;
@@ -7053,10 +7248,10 @@ index a48782e..6128ade 100644
      if (ok) {
          r = write(sl.s, &v, 8) == 8 ? 0 : -1;
 diff --git a/runtime/sdk/ov/ov_zstd.c b/runtime/sdk/ov/ov_zstd.c
-index 6acae2a..415574d 100644
+index d2140af..2ef7d27 100644
 --- a/runtime/sdk/ov/ov_zstd.c
 +++ b/runtime/sdk/ov/ov_zstd.c
-@@ -17,11 +17,17 @@
+@@ -17,12 +17,18 @@
  
  #define ZSTD_STATIC_LINKING_ONLY
  #include <zstd.h>
@@ -7064,6 +7259,7 @@ index 6acae2a..415574d 100644
  
  #include "cfg.h"
 +#include "boot_progress.h"
+ #include "hacks.h"
  #include "host.h"
  #include "version.h"
  #include "platform/platform.h"
@@ -7074,7 +7270,7 @@ index 6acae2a..415574d 100644
  
  // ZSTD_decompressMultiFrame (1.0.0: main+0x407e00, 1.8.0: main+0xe2280; version.c, the patch set "zstd")
  #define GUEST_MULTIFRAME rt_main_addr(rt_version()->zstd_multiframe)
-@@ -68,6 +74,7 @@ static uint64_t fingerprint(const uint8_t *p, uint64_t n) {
+@@ -69,6 +75,7 @@ static uint64_t fingerprint(const uint8_t *p, uint64_t n) {
  static ZSTD_DDict *dict_for(uint64_t guest, uint64_t content, uint64_t size) {
      if (!content || !size || size > MAX_DICT || content >= RT_ADDRESS_LIMIT || content + size > RT_ADDRESS_LIMIT)
          return NULL;
@@ -7082,7 +7278,7 @@ index 6acae2a..415574d 100644
      uint64_t print = fingerprint(gp(content), size);
      ZSTD_DDict *dd = NULL;
      plat_mutex_lock_shared(&dict_lock);
-@@ -103,10 +110,12 @@ static size_t host_decode(uint64_t dst, uint64_t cap, uint64_t src, uint64_t siz
+@@ -104,10 +111,12 @@ static size_t host_decode(uint64_t dst, uint64_t cap, uint64_t src, uint64_t siz
                            uint64_t ddict, int *ok) {
      static __thread ZSTD_DCtx *dctx;
      *ok = 0;
@@ -7097,7 +7293,7 @@ index 6acae2a..415574d 100644
          uint64_t f[3];   // ZSTD_DDict: dictBuffer, dictContent, dictSize
          memcpy(f, gp(ddict), sizeof f);
          if (!(dd = dict_for(ddict, f[1], f[2]))) {
-@@ -125,9 +134,37 @@ static size_t host_decode(uint64_t dst, uint64_t cap, uint64_t src, uint64_t siz
+@@ -126,9 +135,37 @@ static size_t host_decode(uint64_t dst, uint64_t cap, uint64_t src, uint64_t siz
          if (!(dd = dict_for(0, dict, dict_size))) return 0;
      }
      if (!dctx && !(dctx = ZSTD_createDCtx())) return 0;
@@ -7137,7 +7333,7 @@ index 6acae2a..415574d 100644
  }
  
  // The host call inside the thread's host depth, as hostfn.c counts it for asynchronous preemption.
-@@ -291,11 +328,44 @@ static int32_t stream_fail(uint64_t obj, int32_t r) {
+@@ -308,11 +345,44 @@ static int32_t stream_fail(uint64_t obj, int32_t r) {
  
  // One block as the guest's ZSTD_decompressContinue call would decode it; advances dst, room and content left.
  static int stream_block(Cpu *c, uint64_t obj, ZSTD_DCtx *d, const void *src, size_t n, int32_t *err) {
@@ -7183,33 +7379,33 @@ index 6acae2a..415574d 100644
      kern_core_back(&away);
      if (depth) {
          int k = *depth - 1;
-@@ -331,6 +401,7 @@ static int32_t stream_chunk(Cpu *c, uint64_t obj, const uint8_t *src, int32_t si
+@@ -348,6 +418,7 @@ static int32_t stream_chunk(Cpu *c, uint64_t obj, const uint8_t *src, int32_t si
              h.frameContentSize >= ZSTD_CONTENTSIZE_ERROR)
              return stream_fail(obj, -1);
          wr32(obj + 0x14, (int32_t)h.frameContentSize);
 +        boot_progress_unpack_begin(h.frameContentSize);
+         stream_output(obj, rd64(obj + 8), h.frameContentSize);
          if (ZSTD_isError(dd ? ZSTD_decompressBegin_usingDDict(d, dd) : ZSTD_decompressBegin(d))) return stream_fail(obj, -1);
          uint64_t mem = rd64(obj + 0x18);
-         wr64(obj + 0x30, mem & 7 ? 0 : mem);
 diff --git a/runtime/ui/menu/README.md b/runtime/ui/menu/README.md
-index 8e9962c..e92de06 100644
+index ff1420e..93f6eb3 100644
 --- a/runtime/ui/menu/README.md
 +++ b/runtime/ui/menu/README.md
-@@ -8,6 +8,8 @@ The in-game menu (F1) and what it shares with the start screen: look, settings t
- | `menu_notice.cpp`, `menu_notice.h` | `menu_notice`: a timed line at the top of the picture, menu open or not (missing controllers) |
- | `menu_sdl.cpp` | Event adapter for the SDL3 window |
- | `settings_tabs.cpp`, `settings_tabs.h` | The settings tabs (bar and rows of each tab), shared by the menu and the start screen |
--| `menu_look.cpp`, `menu_look.h` | Colours and sizes of the menu, and the fonts it shares with the start screen (embedded Roboto) |
-+| `menu_look.cpp`, `menu_look.h` | Colours and sizes of the menu, and the fonts it shares with the start screen (embedded Roboto; SCE Clang 18 uses the same bytes through the generated ps5_roboto.inc) |
+@@ -13,3 +13,9 @@ The in-game menu (F1) and what it shares with the start screen: look, settings t
  | `option_rows.cpp`, `option_rows.h` | Two-pane settings pages: rows of the `cfg.h` table on the left, description on the right (from SavageWindRecomp, MIT); their colours are the menu's unless a caller passes its own (`opt_look`) |
  | `binds_page.cpp`, `binds_page.h` | Remapping rows of the controls tab (`input_map.h`, `MKW_BIND_*` lines) |
+ | `id_check.cpp`, `id_check.h` | ImGui ID conflicts written to `mkw.log` (window and page) instead of ImGui's red popup, for the menu and the start screen |
++| `settings_tabs.cpp`, `settings_tabs.h` | The settings tabs (bar and rows of each tab), shared by the menu and the start screen |
++| `menu_look.cpp`, `menu_look.h` | Colours and sizes of the menu, and the fonts it shares with the start screen (embedded Roboto; SCE Clang 18 uses the same bytes through the generated ps5_roboto.inc) |
++| `option_rows.cpp`, `option_rows.h` | Two-pane settings pages: rows of the `cfg.h` table on the left, description on the right (from SavageWindRecomp, MIT); their colours are the menu's unless a caller passes its own (`opt_look`) |
++| `binds_page.cpp`, `binds_page.h` | Remapping rows of the controls tab (`input_map.h`, `MKW_BIND_*` lines) |
 +
 +`menu_boot.cpp`/`menu_boot.h` draw the PS5 startup activity panel through the existing ImGui present path: read/decode totals, elapsed time and last observed activity.
 diff --git a/runtime/ui/menu/menu.cpp b/runtime/ui/menu/menu.cpp
-index 9a2c285..ec114dd 100644
+index 1dbaaba..b221b49 100644
 --- a/runtime/ui/menu/menu.cpp
 +++ b/runtime/ui/menu/menu.cpp
-@@ -21,6 +21,7 @@
+@@ -22,6 +22,7 @@
  #include "backends/imgui_impl_vulkan.h"
  #include "ui/menu/binds_page.h"
  #include "ui/menu/menu_look.h"
@@ -7217,7 +7413,7 @@ index 9a2c285..ec114dd 100644
  #include "ui/menu/menu_notice.h"
  #include "ui/menu/settings_tabs.h"
  #include "ui/menu/option_rows.h"
-@@ -216,6 +217,7 @@ static int vk_up(const MenuTarget *t) {
+@@ -223,6 +224,7 @@ static int vk_up(const MenuTarget *t) {
  // Made again when the window height changes; the old texture goes after the queue is idle (CreateFontsTexture).
  static int fonts_up(float scale) {
      menu_look_fonts(scale);
@@ -7225,34 +7421,35 @@ index 9a2c285..ec114dd 100644
      vk_queue_lock();   // the upload submits on the queue and waits for it
      int ok = ImGui_ImplVulkan_CreateFontsTexture();
      vk_queue_unlock();
-@@ -599,6 +601,8 @@ extern "C" int menu_overlay_frame(uint64_t frame, const MenuTarget *t, const cha
+@@ -626,6 +628,8 @@ extern "C" int menu_overlay_frame(uint64_t frame, const MenuTarget *t, const cha
      if (g_test.next_set < g_test.n_sets && frame >= g_test.sets[g_test.next_set].frame) test_apply_sets(frame);
      if (g_perf_save.exchange(0)) cfg_save();
      perf_tick(plat_now_ns(), frame, t);
 +    BootProgress boot = {};
 +    bool loading = boot_progress_snapshot(&boot);   // the startup picture also stays over the game until its textures are in
+     text_entry_test(frame);
+     classic_poll();   // MKW_CLASSIC_GP or _VS changed: the cups and routes in the game's memory (core/hacks/classic.c)
      bool open = g_open.load(std::memory_order_relaxed);
-     if (!open) {
-         if (g_save_pending) g_save_pending = opt_save_tick(1);   // closed: the last change goes to mkw.ini now
-@@ -608,7 +612,7 @@ extern "C" int menu_overlay_frame(uint64_t frame, const MenuTarget *t, const cha
+@@ -637,7 +641,7 @@ extern "C" int menu_overlay_frame(uint64_t frame, const MenuTarget *t, const cha
              settings_select(0);
              set_open(1);
              open = true;
--        } else if (!g_perf_mode && !menu_notice_shown()) {
-+        } else if (!loading && !g_perf_mode && !menu_notice_shown()) {
+-        } else if (!g_perf_mode && !menu_notice_shown() && !text_entry_up() && !plugins_overlay_wanted()) {
++        } else if (!loading && !g_perf_mode && !menu_notice_shown() && !text_entry_up() && !plugins_overlay_wanted()) {
              return 0;
          }
      }
-@@ -655,7 +659,8 @@ extern "C" int menu_overlay_frame(uint64_t frame, const MenuTarget *t, const cha
-     }
+@@ -695,8 +699,9 @@ extern "C" int menu_overlay_frame(uint64_t frame, const MenuTarget *t, const cha
      ImGui_ImplVulkan_NewFrame();
+     ui_id_check("in-game menu");
      ImGui::NewFrame();
--    if (open) layout_menu(t->width, t->height, scale);
 +    if (loading) menu_boot_draw((float)t->width, (float)t->height, scale, &boot, t0);
+     plugins_overlay_draw((float)t->width, (float)t->height, scale);
+-    if (open) layout_menu(t->width, t->height, scale);
 +    if (open && !loading) layout_menu(t->width, t->height, scale);
      perf_draw(t, scale);
      menu_notice_draw((float)t->width, scale);
-     ImGui::Render();
+     text_entry_draw((float)t->width, (float)t->height, scale);
 diff --git a/runtime/ui/menu/menu_boot.cpp b/runtime/ui/menu/menu_boot.cpp
 new file mode 100644
 index 0000000..8296852
@@ -7612,7 +7809,7 @@ index 9664b1a..2bf3ca8 100644
  #pragma clang diagnostic pop
  static_assert(sizeof roboto_ttf > 100000, "Roboto-Medium.ttf not embedded");
 diff --git a/runtime/ui/menu/settings_tabs.cpp b/runtime/ui/menu/settings_tabs.cpp
-index 9a610e3..5a879de 100644
+index d1ff7d8..9ad34c3 100644
 --- a/runtime/ui/menu/settings_tabs.cpp
 +++ b/runtime/ui/menu/settings_tabs.cpp
 @@ -6,7 +6,9 @@
@@ -7625,7 +7822,7 @@ index 9a610e3..5a879de 100644
  
  #include "imgui.h"
  #include "ui/menu/binds_page.h"
-@@ -240,8 +242,12 @@ static void auto_set(void) {
+@@ -287,8 +289,12 @@ static void auto_set(void) {
      // window: gfx_window_monitor_size says nothing there)
      int mw = 0, mh = 0;
      if (!gfx_window_monitor_size(&mw, &mh)) {
@@ -7639,13 +7836,15 @@ index 9a610e3..5a879de 100644
      uint32_t mb = g_gpu_n > 0 ? g_gpu_vram_mb[gi] : 0;
      bool weak = g_gpu_n <= 0 || !g_gpu_discrete[gi] || mb < 6 * 1024, strong = !weak && mb >= 16 * 1024;
 diff --git a/tests/README.md b/tests/README.md
-index c47982c..370316c 100644
+index 790d14e..46d7214 100644
 --- a/tests/README.md
 +++ b/tests/README.md
-@@ -5,6 +5,16 @@ end's regression test runs over captures instead (`tools/test/`).
+@@ -14,3 +14,73 @@ Each folder holds the tests of one part of the repo, with the C sources they bui
+ | [github/](github/README.md) | The issue moderation bot |
  
- | File | What it checks |
- |---|---|
+ Usage: `uv run pytest tests` (one worker per core through pytest-xdist; `-n 0` runs them in series)
++| File | What it checks |
++|---|---|
 +| `test_ps5_guest_memory.py` | Adjacent mapped regions, concurrent whole-span copies/protection changes, unchanged host buffers on rejected reads, guest-buffer alias rejection, invalid spans and unmap/remap zero-fill |
 +| `test_ps5_cpu_probe.py` | Original AArch64 scalar fixtures generated with the project lifter and compiled as native C: 256 value cases, 23 permission/range faults, transactional RW/RO crossing, repeated release/reuse and thread-local recovery scope; also 64 SIMD cases, 842 atomic cases, CASP/exclusive pairs, 10 access rejections and 4000 contended increments across four threads |
 +| `test_ps5_nso_link.py` | Native C diagnostic linker on synthetic checked regions: RELA/packed RELR hashes, weak binding, malformed metadata, duplicate destinations and count failures rejected before writes, post-write digest failure |
@@ -7656,13 +7855,19 @@ index c47982c..370316c 100644
 +| `test_ps5_nso.py` | Synthetic compressed/uncompressed NSO images, image/file hashes, collision rejection, fixed-address reload, malformed LZ4 and changed-file rejection, without game files |
 +| `test_ps5_sha256.py` | SHA-256 against Python hashlib across padding boundaries in ordinary and PS5 header modes; covers the portable CPUID capability selection used by the SCE compiler |
 +| `test_ps5_intr.py` | Host tests of the PS5 scheduler interruption protocol: blocked-signal timeout and cancellation, 100 suspensions, register snapshots, instruction-pointer redirection and preserving a previously installed signal handler (`c/t_ps5_intr.c`) |
- | `test_setup.py` | The setup's command lines and files from folders with spaces and accents: the compiler's path on its way to the shader step (issue #29), the resume without `--source` after an update, the update's version order and its clean-up of `*.old` files, the update that regenerates the code cleanup removed, NVIDIA's downloads fetched again when they arrive damaged (issue #207), and setup tools, unpacking and warm-up when the installation is separate from the launcher, including symlink/junction aliases of long installation paths and response-file paths with spaces, quotes and backslashes for Clang, Zig and lld-link |
- | `test_steam.py` | The Tools page's Add to Steam (`tools/prepare/steam.py`): the binary `shortcuts.vdf` read back as it was written (strings, ints, a 64-bit field, tags), an entry with the same executable replaced instead of doubled with the other shortcuts kept whole, a missing file created, and a pid file that is not there or is not a number reading as Steam closed |
- | `test_game_dir.py` | Installation selection and persistence, relative paths, UTF-8 length boundaries, trailing whitespace and quotes, environment overrides, settings saved in the chosen folder, library readiness before memory initialization, recovery from failed or invalid saved selections, and log-folder discovery with launcher fallbacks and active log destinations (`c/t_game_dir.c`, POSIX harness) |
-@@ -18,3 +28,48 @@ end's regression test runs over captures instead (`tools/test/`).
- | `test_defaults.py` | The memory caps a player gets with nothing set (`runtime/gfx/vk/device/vk_defaults.c`), built alone and checked on the GPUs players reported: the Radeon 660M keeps its measured caps, a large discrete GPU is not held to them (issue #31) |
- 
- Usage: `uv run pytest tests`
++| `test_setup.py` | The setup's command lines and files from folders with spaces and accents: the compiler's path on its way to the shader step (issue #29), the resume without `--source` after an update, the update's version order and its clean-up of `*.old` files, the update that regenerates the code cleanup removed, NVIDIA's downloads fetched again when they arrive damaged (issue #207), and setup tools, unpacking and warm-up when the installation is separate from the launcher, including symlink/junction aliases of long installation paths and response-file paths with spaces, quotes and backslashes for Clang, Zig and lld-link |
++| `test_steam.py` | The Tools page's Add to Steam (`tools/prepare/steam.py`): the binary `shortcuts.vdf` read back as it was written (strings, ints, a 64-bit field, tags), an entry with the same executable replaced instead of doubled with the other shortcuts kept whole, a missing file created, and a pid file that is not there or is not a number reading as Steam closed |
++| `test_game_dir.py` | Installation selection and persistence, relative paths, UTF-8 length boundaries, trailing whitespace and quotes, environment overrides, settings saved in the chosen folder, library readiness before memory initialization, recovery from failed or invalid saved selections, and log-folder discovery with launcher fallbacks and active log destinations (`c/t_game_dir.c`, POSIX harness) |
++| `test_game_dir_windows.py` | The actual Windows selector compiled with Clang/MinGW, run natively or under Wine: UTF-16 root limits with room for derived filenames, ASCII/BMP/supplementary characters, prepared DLL discovery, rejection before persistence, relative-prefix counting and recovery from invalid saved paths (`c/t_game_dir.c`; skipped when the toolchain or runner is absent) |
++| `test_issues.py` | The issue moderation's reading of a report (`tools/github/classify.py`): the release from the form, RecompLauncher's report or the prose, the GPU without the CPU's vendor, empty reports, logs, known errors and their regressions, which maintainer replies close an issue and which player replies reopen it |
++| `test_flow.py` | Shapes of control flow ptxas leaves that the translator must structure as the branch graph runs them (`sm86/translate/flow.py`, checked with `flow_sim`): a jump into a tail that an if / else shares |
++| `test_ui_text.py` | The menu's text catalogs (`i18n/`): the English template has every id of `ui_text.h`, each `.po` is up to date with it, and each translation keeps the English's printf conversions in order (a swapped `%s`/`%d` would make printf read the wrong argument) |
++| `test_switch2.py` | The Switch 2 controllers' Bluetooth LE protocol (`runtime/input/switch2_proto.h`): mkw-neo's test (`c/t_switch2.c`, reports recorded from real Joy-Con 2s) built against our copy |
++| `test_mods.py` | Code patches shipped by mods (`recomp/patches.py` `load_mods`): a mod with spans only, two mods on one address stop the generate, no `mods/` folder leaves the table as it was |
++| `test_cfg.py` | Every setting the in-game menu writes to `mkw.ini` is a key `runtime/core/base/cfg.c` reads back (#168: `HDR` was dropped as unknown) |
++| `test_defaults.py` | The memory caps a player gets with nothing set (`runtime/gfx/vk/device/vk_defaults.c`), built alone and checked on the GPUs players reported: the Radeon 660M keeps its measured caps, a large discrete GPU is not held to them (issue #31) |
++
++Usage: `uv run pytest tests`
 +
 +`test_ps5_memory.py` checks the runtime memory interface with the SDK's Linux
 +kernel model: sparse 14 GiB reservation, logical state, dirty pages, loader
@@ -7709,18 +7914,22 @@ index c47982c..370316c 100644
 +
 +`test_ps5_cpu_fast.py` exercises the real scalar/vector CPU hooks with a two-gate budget for ready single-region accesses, lazy and write-watch retries, cross-page dirty tracking and rejection of a read-only tail before prefix modification.
 diff --git a/tests/c/README.md b/tests/c/README.md
-index 3eea078..6ced201 100644
---- a/tests/c/README.md
+new file mode 100644
+index 0000000..6ced201
+--- /dev/null
 +++ b/tests/c/README.md
-@@ -4,5 +4,10 @@ C sources the Python tests next door build with the compiler at hand and run.
- 
- | File | Built by | What it checks |
- |---|---|---|
+@@ -0,0 +1,13 @@
++# tests/c
++
++C sources the Python tests next door build with the compiler at hand and run.
++
++| File | Built by | What it checks |
++|---|---|---|
 +| `t_ps5_sync.c` | `test_ps5_sync.py` | Host checks of the PS5 lock and condition protocol, deadlines, recursive locks, events, once, and colliding parking entries; no game or GPU |
 +| `t_ps5_threads.c` | `test_ps5_threads.py` | Thread completion and detached-stack reclamation, stack guards, startup failure, FP controls, migrating sparse fibers and stack growth in pthread destructors on the Linux host |
 +| `t_ps5_intr.c` | `test_ps5_intr.py` | Suspension/resumption, blocked-signal cancellation, instruction-pointer redirection and signal-handler conflicts on the Linux host |
- | `t_switch2.c` | `test_switch2.py` | The Switch 2 controllers' protocol (`runtime/input/switch2_proto.h`): from seedds/mkw-neo (MIT), with reports and replies recorded from a left and a right Joy-Con 2 |
- | `t_game_dir.c` | `test_game_dir.py`, `test_game_dir_windows.py` | Settings, installation discovery and log-folder discovery with real files and single-thread platform stubs; Windows uses UTF-16 file APIs and UTF-8 conversion through `wmain`; no game, SDL or GPU |
++| `t_switch2.c` | `test_switch2.py` | The Switch 2 controllers' protocol (`runtime/input/switch2_proto.h`): from seedds/mkw-neo (MIT), with reports and replies recorded from a left and a right Joy-Con 2 |
++| `t_game_dir.c` | `test_game_dir.py`, `test_game_dir_windows.py` | Settings, installation discovery and log-folder discovery with real files and single-thread platform stubs; Windows uses UTF-16 file APIs and UTF-8 conversion through `wmain`; no game, SDL or GPU |
 +
 +The thread harness injects pthread_create EAGAIN and checks errno propagation and stack reclamation before a successful creation.
 diff --git a/tests/c/t_ps5_intr.c b/tests/c/t_ps5_intr.c
@@ -8865,10 +9074,10 @@ index 0000000..fe552e7
 +    unittest.main()
 diff --git a/tests/test_ps5_memops.py b/tests/test_ps5_memops.py
 new file mode 100644
-index 0000000..87224b9
+index 0000000..dd25342
 --- /dev/null
 +++ b/tests/test_ps5_memops.py
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,97 @@
 +"""Native PS5 memory overrides preserve ordering, comparison and checked fill semantics."""
 +from pathlib import Path
 +import subprocess
@@ -8893,6 +9102,7 @@ index 0000000..87224b9
 +static unsigned calls;
 +__attribute__((noreturn)) void rt_fatal(const char *fmt, ...) { (void)fmt; _exit(77); }
 +void rt_log(const char *fmt, ...) { (void)fmt; }
++const char *cfg_get(const char *name) { (void)name; return NULL; }   // nvn_api_core.c reads settings since the 21/11 merge
 +static void gpu_read(uint64_t a,uint64_t n) {
 +    assert(n==0x210123 && (a==left+7 || a==right+11));
 +    unsigned char fresh=0xa5;
@@ -9501,10 +9711,10 @@ index 0000000..d8628c5
 +    unittest.main()
 diff --git a/tests/test_ps5_nvn_copy.py b/tests/test_ps5_nvn_copy.py
 new file mode 100644
-index 0000000..3c21f2a
+index 0000000..e50e9f0
 --- /dev/null
 +++ b/tests/test_ps5_nvn_copy.py
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,79 @@
 +"""Actual graphics memcpy override: GPU ordering, lazy backing, dirty pages and rejection."""
 +from pathlib import Path
 +import subprocess
@@ -9528,6 +9738,7 @@ index 0000000..3c21f2a
 +static unsigned read_calls;
 +__attribute__((noreturn)) void rt_fatal(const char *fmt, ...) { (void)fmt; _exit(77); }
 +void rt_log(const char *fmt, ...) { (void)fmt; }
++const char *cfg_get(const char *name) { (void)name; return NULL; }   // nvn_api_core.c reads settings since the 21/11 merge
 +static int lazy_back(uint64_t a) {
 +    uint64_t chunk = a & ~((2ull << 20) - 1);
 +    return plat_mem_commit(chunk, 2u << 20);
@@ -10024,10 +10235,10 @@ index 0000000..a7e5a95
 +            subprocess.run([str(exe)], check=True, timeout=30)
 +if __name__ == '__main__': unittest.main()
 diff --git a/tools/build/README.md b/tools/build/README.md
-index 49a848b..e972388 100644
+index 8ec6425..7729be1 100644
 --- a/tools/build/README.md
 +++ b/tools/build/README.md
-@@ -2,6 +2,13 @@
+@@ -4,6 +4,13 @@ Shortcuts for these flows: [`make help`](../../Makefile) at the repo root.
  
  | Script | What it does | Usage |
  |---|---|---|
@@ -10039,9 +10250,9 @@ index 49a848b..e972388 100644
 +| `nso_probe_manifest.py` | Writes expected file/raw-image/linked-image hashes, relocation counts and canonical fixed addresses for the private NSO diagnostic. Output stays in `build/`; uses the local dump and does not embed game bytes | `python3 tools/build/nso_probe_manifest.py --exefs DIR --out build/ps5/nso_probe_manifest.h` |
 +| `ps5.py` | PS5 port in progress: cross-compiles CPU runtime files, common primitives, synchronisation, threads, demand stacks, fibers and interruption, diagnostic NSO loading/linking plus the SDK's experimental demand pager into an intermediate archive. Uses the sibling `PS5_PayloadSDK` fork unless `--platform-fork DIR` selects another. Optional source audit records remaining errors in `build/ps5/audit.json`. Does not link or package a title | `python3 tools/build/ps5.py --stack /path/to/ps5-vulkan [--platform-fork DIR] [--audit-runtime]` |
  | `icon.py` | Draws `mkw.exe`'s icon in code (our own chequered flag, no game art) into a `.ico` of 256, 48, 32 and 16 px; `build.py --target windows` calls it before the `runtime/platform/mkw.rc` resource; a `.png` name, the AppImage's 256 px icon; a `.c` name, `app_icon_set` with a 128 px copy that `build.py` builds into every target, so the window carries it (the Wayland taskbar shows it through `xdg_toplevel_icon`); `.svg`, the logo | `uv run tools/build/icon.py OUT.ico\|OUT.png\|OUT.svg` |
- | `windeps.py` | Downloads to `build/win` what the Windows `.exe` needs: llvm-mingw 20261020 (`build/win/llvm-mingw`) and the headers, libraries and DLLs of SDL3, Opus, libvpx, zstd, xxHash, Vulkan and VMA from MSYS2 UCRT64 (`build/win/deps`) with their licences (`deps/share/licenses`, for the release zip), each download checked against its sha256 | `uv run tools/build/windeps.py` (~1 min; 670 MB) |
- | `dist.py` | Assembles the player's folder in `build/dist/<target>` after `build.py --dist`: `setup/` with a portable CPython (python-build-standalone) with numpy and lz4, zig 0.17.1 (for Windows also its C runtime, prebuilt in `setup/lib/crt/` so the setup links without building it: issue #2), `glslc` from conda-forge and the sources the setup runs (`tools/prepare/prepare.py`); the start screen creates the desktop shortcut (`.desktop` on Linux, `.lnk` on Windows). Each download checked against its sha256 | `uv run tools/build/dist.py [--target linux\|windows] [--check]` |
-@@ -72,3 +79,28 @@ uv run tools/build/dist.py --target linux-aarch64 && uv run tools/build/release.
+ | `windeps.py` | Downloads to `build/win` what the Windows `.exe` needs: llvm-mingw 20261020 (`build/win/llvm-mingw`: its Linux build, or on a Windows host its Windows `.zip`) and the headers, libraries and DLLs of SDL3, Opus, libvpx, zstd, xxHash, Vulkan and VMA from MSYS2 UCRT64 (`build/win/deps`) with their licences (`deps/share/licenses`, for the release zip), each download checked against its sha256. SDL3 is built from source with CMake and Ninja (with libusb); on Windows, `cmake` or `ninja` missing from `PATH` are taken from MSYS2 UCRT64 (`C:/msys64/ucrt64/bin`, or `MSYS2_UCRT64_BIN`), and it stops before any download when they are not found | `uv run tools/build/windeps.py` (~1 min; 670 MB) |
+ | `dist.py` | Assembles the player's folder in `build/dist/<target>` after `build.py --dist`: `setup/` with a portable CPython (python-build-standalone) with numpy, lz4 and fontTools, zig 0.17.1 (for Windows also its C runtime, prebuilt in `setup/lib/crt/` so the setup links without building it: issue #2; made by zig's Linux build, or its Windows build on a Windows host), LLVM's own clang of zig's LLVM version in `setup/clang` (Linux x86-64 and Windows, `llvm_clang.py`), `glslc` from conda-forge (with glslang, SPIRV-Tools and SPIRV-Cross, which `tools/shaders/renodx.py` uses) and the sources the setup runs (`tools/prepare/prepare.py`); the start screen creates the desktop shortcut (`.desktop` on Linux, `.lnk` on Windows). Each download checked against its sha256 | `uv run tools/build/dist.py [--target linux\|windows] [--check]` |
+@@ -110,3 +117,28 @@ uv run tools/build/dist.py --target linux-aarch64 && uv run tools/build/release.
  On the device the setup works as on x86-64: the package's zig builds the game code, NVIDIA's AArch64 ("sbsa") `nvdisasm`
  and `ptxas` build the SM86 spec. Tested on an AYN Odin 2 (Snapdragon 8 Gen 2, Turnip, SteamOS ARM); rendering there
  also needs the Adreno workarounds in `runtime/gfx/vk`, which come separately.
@@ -10071,10 +10282,10 @@ index 49a848b..e972388 100644
 +tables, invalid name/function pointers, missing critical SDK hooks and converted
 +metadata outside GNU_RELRO. The direct title's link recipe runs it before signing.
 diff --git a/tools/build/build.py b/tools/build/build.py
-index 2c71f02..b11ca04 100644
+index 5b06a91..2f77320 100644
 --- a/tools/build/build.py
 +++ b/tools/build/build.py
-@@ -111,7 +111,8 @@ def mem_total_gb() -> float:
+@@ -169,7 +169,8 @@ def mem_total_gb() -> float:
  def runtime_sources(target: Target) -> list[Path]:
      """Every runtime .c/.cpp of the target. Linux: no Win32 file (*_win.*, platform/win32*.c). Windows: no
      platform/linux*.c."""
@@ -10486,10 +10697,10 @@ index 0000000..2d75162
 +    print(f'Synthetic AOT scalar fixture: {args.out}')
 diff --git a/tools/build/ps5_boot.py b/tools/build/ps5_boot.py
 new file mode 100644
-index 0000000..5c0d5d4
+index 0000000..7f20bd5
 --- /dev/null
 +++ b/tools/build/ps5_boot.py
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,78 @@
 +"""Compile the native game runtime for a direct PS5 title, without desktop SDL/launcher/probes.
 +
 +Uses real runtime services and the native pad/window adapters. Game archives must
@@ -10501,6 +10712,7 @@ index 0000000..5c0d5d4
 +import argparse, hashlib, json, os, shlex, subprocess, sys
 +ROOT=Path(__file__).resolve().parents[2]
 +from build import game_id, catalog
++import hud_layouts  # recomp/ (on the path through build.py): the HUD layout table patches.c includes
 +from ps5_game import path
 +
 +def main():
@@ -10510,7 +10722,8 @@ index 0000000..5c0d5d4
 + (out/'ps5_roboto.inc').write_bytes((ROOT/'build/ps5/ps5_roboto.inc').read_bytes())
 + sources=[]
 + skip={'input','input_sdl','switch2','switch2_win','menu_sdl','gfx_window_sdl','imgui_impl_sdl3','imgui_impl_sdlrenderer3',
-+       'ps5_cpu_probe','ps5_game_slice','ps5_nso_probe','ps5_nso_link'}
++       'ps5_cpu_probe','ps5_game_slice','ps5_nso_probe','ps5_nso_link',
++       'dsu','wheel','plugin','mod_page_ui'}   # desktop only: DSU motion and wheels (input.c), native plugins (plugin_ps5.c instead)
 + for p in sorted(runtime.rglob('*')):
 +  if p.suffix not in ('.c','.cpp') or p.stem in skip or p.stem.startswith(('linux','win32')) or p.stem.endswith('_win'):continue
 +  if p.is_relative_to(runtime/'ui/launcher') or p.is_relative_to(runtime/'probes'):continue
@@ -10518,11 +10731,14 @@ index 0000000..5c0d5d4
 + sources += [ROOT.parent/'PS5_PayloadSDK/platform/src'/f'{n}.c' for n in ('demand','checked_region')]
 + sources += [title/'ps5/src/platform.c',title/'ps5/third_party/volk/volk.c',title/'ps5/src/game_entry.c']
 + catalog.generate(out/'rt/i18n')
++ (out/'rt').mkdir(parents=True,exist_ok=True)
++ hl=out/'rt/hud_layouts.h'; text=hud_layouts.header_text()
++ if not hl.exists() or hl.read_text()!=text: hl.write_text(text)
 + defaults=out/'defaults.c'
-+ defaults.write_text('const char rt_default_exefs[]="/app0/exefs";\nconst char rt_default_romfs[]="/app0/romfs";\nconst char rt_default_profile[]="/app0/profile";\nconst char rt_port_version[]="PS5 MKWBOOT-093";\n')
++ defaults.write_text('const char rt_default_exefs[]="/app0/exefs";\nconst char rt_default_romfs[]="/app0/romfs";\nconst char rt_default_profile[]="/app0/profile";\nconst char rt_port_version[]="PS5 MKWBOOT-095";\n')
 + sources += [defaults,*sorted((out/'rt/i18n').glob('ui_text_*.c'))]
 + includes=sorted({runtime}|{p.parent for p in runtime.rglob('*.h')})
-+ includes += [stack/'PS5_VulkanTemplate/external',ROOT/'build/generated-ps5',out,ROOT.parent/'PS5_PayloadSDK/platform/include',title/'ps5/third_party/volk']
++ includes += [stack/'PS5_VulkanTemplate/external',ROOT/'build/generated-ps5',out,out/'rt',ROOT.parent/'PS5_PayloadSDK/platform/include',title/'ps5/third_party/volk']
 + deps=json.loads((ROOT/'build/ps5-deps/dependencies.json').read_text());includes += [Path(d['include']) for d in deps.values()]
 + flags=['-O2','-g1','-fPIC','-march=x86-64-v3','-fno-strict-aliasing','-fno-omit-frame-pointer','-ffunction-sections','-fdata-sections',
 +        '-Wno-bitwise-instead-of-logical','-Wno-nullability-completeness','-DMKW_CHECKED_MEMORY','-DVK_NO_PROTOTYPES','-DRT_GAME_ID="'+game_id()+'"',
